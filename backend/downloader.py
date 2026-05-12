@@ -28,6 +28,46 @@ class VideoDownloader:
         self.has_ffmpeg = self.ffmpeg_path is not None
 
     @staticmethod
+    def _base_ydl_opts(url: str = "") -> dict:
+        user_agent = os.getenv(
+            "YTDLP_USER_AGENT",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        )
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+            "noplaylist": True,
+            "http_headers": {
+                "User-Agent": user_agent,
+            },
+        }
+
+        if "bilibili.com" in url or "b23.tv" in url:
+            opts["http_headers"]["Referer"] = url
+
+        proxy = os.getenv("YTDLP_PROXY", "").strip()
+        cookiefile = os.getenv("YTDLP_COOKIEFILE", "").strip()
+        if proxy:
+            opts["proxy"] = proxy
+        if cookiefile:
+            opts["cookiefile"] = cookiefile
+        return opts
+
+    @staticmethod
+    def _normalize_ydlp_error(url: str, error: Exception) -> Exception:
+        message = str(error)
+        is_bilibili = "bilibili.com" in url or "b23.tv" in url
+        if is_bilibili and "412" in message and "Precondition Failed" in message:
+            return ValueError(
+                "B 站拦截了当前服务器请求（HTTP 412）。这通常不是前端问题，而是服务器 IP、"
+                "代理出口或 cookie 被风控。请在 backend/.env 中配置 YTDLP_PROXY，"
+                "必要时再补 YTDLP_COOKIEFILE，然后重启后端容器。"
+            )
+        return error
+
+    @staticmethod
     def _sanitize_filename(name: str) -> str:
         return re.sub(r'[\\/*?:"<>|]', "_", name)
 
@@ -53,14 +93,12 @@ class VideoDownloader:
 
     def parse_video(self, url: str) -> dict:
         """解析视频信息，不下载文件"""
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": False,
-            "noplaylist": True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        ydl_opts = self._base_ydl_opts(url)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise self._normalize_ydlp_error(url, e)
 
         if not info:
             raise ValueError("无法解析该链接")
@@ -154,19 +192,20 @@ class VideoDownloader:
             format_id = "best"
 
         ydl_opts = {
+            **self._base_ydl_opts(url),
             "format": format_id,
             "outtmpl": os.path.join(self.DOWNLOAD_DIR, "%(title)s.%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
         }
 
         if self.has_ffmpeg:
             ydl_opts["ffmpeg_location"] = self.ffmpeg_path
             ydl_opts["merge_output_format"] = "mp4"
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except Exception as e:
+            raise self._normalize_ydlp_error(url, e)
 
         if not info:
             raise ValueError("下载失败")
@@ -198,14 +237,15 @@ class VideoDownloader:
     def get_direct_url(self, url: str, format_id: str) -> dict:
         """获取视频直链"""
         ydl_opts = {
+            **self._base_ydl_opts(url),
             "format": format_id,
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise self._normalize_ydlp_error(url, e)
 
         if not info:
             raise ValueError("无法获取直链")

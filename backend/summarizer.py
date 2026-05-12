@@ -23,6 +23,43 @@ def _get_first_env(*keys: str, default: str = "") -> str:
     return default
 
 
+def _build_ydl_opts(url: str = "", **extra) -> dict:
+    user_agent = os.getenv(
+        "YTDLP_USER_AGENT",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    )
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "http_headers": {
+            "User-Agent": user_agent,
+        },
+    }
+    if _is_bilibili_url(url):
+        opts["http_headers"]["Referer"] = url
+
+    proxy = os.getenv("YTDLP_PROXY", "").strip()
+    cookiefile = os.getenv("YTDLP_COOKIEFILE", "").strip()
+    if proxy:
+        opts["proxy"] = proxy
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+    opts.update(extra)
+    return opts
+
+
+def _normalize_subtitle_error(url: str, error: Exception) -> Exception:
+    message = str(error)
+    if _is_bilibili_url(url) and "412" in message and "Precondition Failed" in message:
+        return ValueError(
+            "B 站字幕接口拦截了当前服务器请求（HTTP 412）。请在 backend/.env 中配置 "
+            "YTDLP_PROXY；如果还不够，再补 YTDLP_COOKIEFILE，然后重启后端容器。"
+        )
+    return error
+
+
 class SubtitleExtractor:
     """从视频 URL 提取平台字幕（人工字幕 > 自动字幕）"""
 
@@ -160,17 +197,18 @@ class SubtitleExtractor:
         return m.group(1) if m else None
 
     def _get_video_info(self, url: str) -> dict:
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-            "extract_flat": False,
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-            "skip_download": True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        ydl_opts = _build_ydl_opts(
+            url,
+            extract_flat=False,
+            writesubtitles=True,
+            writeautomaticsub=True,
+            skip_download=True,
+        )
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise _normalize_subtitle_error(url, e)
         if not info:
             raise ValueError("无法解析该视频链接")
         return info
@@ -219,19 +257,20 @@ class SubtitleExtractor:
     def _download_and_parse(self, url: str, lang: str, sub_type: str) -> list[dict]:
         """通过 yt-dlp 下载字幕文件并解析为分段列表"""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
-                "noplaylist": True,
-                "skip_download": True,
-                "writesubtitles": sub_type == "manual",
-                "writeautomaticsub": sub_type == "auto",
-                "subtitleslangs": [lang],
-                "subtitlesformat": "vtt",
-                "outtmpl": os.path.join(tmp_dir, "subtitle"),
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            ydl_opts = _build_ydl_opts(
+                url,
+                skip_download=True,
+                writesubtitles=sub_type == "manual",
+                writeautomaticsub=sub_type == "auto",
+                subtitleslangs=[lang],
+                subtitlesformat="vtt",
+                outtmpl=os.path.join(tmp_dir, "subtitle"),
+            )
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+            except Exception as e:
+                raise _normalize_subtitle_error(url, e)
 
             vtt_files = [
                 f for f in os.listdir(tmp_dir) if f.endswith(".vtt")
