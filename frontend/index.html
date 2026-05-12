@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+    <title>%VITE_SITE_NAME% | %VITE_SITE_TAGLINE%</title>
+    <meta name="description" content="%VITE_SITE_DESCRIPTION%" />
+    <meta name="keywords" content="%VITE_SITE_KEYWORDS%" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="%VITE_SITE_DOMAIN%" />
+
+    <meta property="og:title" content="%VITE_SITE_NAME% | %VITE_SITE_TAGLINE%" />
+    <meta property="og:description" content="%VITE_SITE_DESCRIPTION%" />
+    <meta property="og:image" content="%VITE_OG_IMAGE%" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="%VITE_SITE_DOMAIN%" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="%VITE_SITE_NAME%" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="%VITE_SITE_NAME% | %VITE_SITE_TAGLINE%" />
+    <meta name="twitter:description" content="%VITE_SITE_DESCRIPTION%" />
+    <meta name="twitter:image" content="%VITE_OG_IMAGE%" />
+
+    <meta itemprop="name" content="%VITE_SITE_NAME%" />
+    <meta itemprop="description" content="%VITE_SITE_DESCRIPTION%" />
+    <meta itemprop="image" content="%VITE_OG_IMAGE%" />
+
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#1777FF" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "%VITE_SITE_NAME%",
+      "url": "%VITE_SITE_DOMAIN%",
+      "description": "%VITE_SITE_DESCRIPTION%",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "CNY"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <noscript>
+      <div style="max-width:760px;margin:40px auto;padding:20px;font-family:sans-serif;line-height:1.8;">
+        <h1>%VITE_SITE_NAME%</h1>
+        <p><strong>%VITE_SITE_NAME%</strong> 是一个多平台视频解析与 AI 总结工具，支持解析视频链接、下载内容、提取字幕、生成摘要和思维导图。</p>
+        <p>如果你的浏览器关闭了 JavaScript，页面交互无法使用，但你仍然可以了解这个项目的核心功能：多平台解析、字幕导出、AI 摘要与问答、会员体系和支付扩展。</p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
