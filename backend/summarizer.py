@@ -1,8 +1,9 @@
 """AI 视频总结模块：字幕提取 + 可切换的 LLM 总结"""
 
-import json
+import math
 import os
 import re
+import subprocess
 import tempfile
 from typing import Optional
 
@@ -60,11 +61,68 @@ def _normalize_subtitle_error(url: str, error: Exception) -> Exception:
     return error
 
 
+def _get_bool_env(key: str, default: bool = False) -> bool:
+    value = os.getenv(key, "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+def _get_int_env(key: str, default: int) -> int:
+    value = os.getenv(key, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _build_openai_audio_client_kwargs() -> dict:
+    api_key = _get_first_env("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("未找到 OpenAI API Key，无法启用语音转写兜底")
+
+    kwargs = {"api_key": api_key}
+    base_url = _get_first_env("OPENAI_BASE_URL")
+    if base_url:
+        kwargs["base_url"] = base_url
+    return kwargs
+
+
+DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+DEFAULT_TRANSCRIPTION_MAX_FILE_MB = 24
+DEFAULT_TRANSCRIPTION_MAX_DURATION_SECONDS = 1800
+
+
 class SubtitleExtractor:
     """从视频 URL 提取平台字幕（人工字幕 > 自动字幕）"""
 
     PREFERRED_LANGS = ["zh-Hans", "zh", "zh-CN", "en", "ja", "ko"]
     SUBTITLE_FORMAT = "json3"
+
+    def __init__(self):
+        self.enable_audio_fallback = _get_bool_env(
+            "ENABLE_AUDIO_TRANSCRIPTION_FALLBACK",
+            default=True,
+        )
+        self.transcription_model = _get_first_env(
+            "OPENAI_TRANSCRIPTION_MODEL",
+            default=DEFAULT_TRANSCRIPTION_MODEL,
+        )
+        self.transcription_max_bytes = (
+            _get_int_env(
+                "OPENAI_TRANSCRIPTION_MAX_FILE_MB",
+                DEFAULT_TRANSCRIPTION_MAX_FILE_MB,
+            )
+            * 1024
+            * 1024
+        )
+        self.transcription_max_duration_seconds = _get_int_env(
+            "OPENAI_TRANSCRIPTION_MAX_DURATION_SECONDS",
+            DEFAULT_TRANSCRIPTION_MAX_DURATION_SECONDS,
+        )
+        self._transcription_client: Optional[OpenAI] = None
 
     def extract(self, url: str) -> dict:
         """
@@ -72,9 +130,10 @@ class SubtitleExtractor:
         {
             "has_subtitle": bool,
             "language": str,
-            "subtitle_type": "manual" | "auto" | "none",
+            "subtitle_type": "manual" | "auto" | "transcribed" | "none",
             "segments": [{"start": float, "end": float, "text": str}, ...],
-            "full_text": str
+            "full_text": str,
+            "detail_message": str
         }
         """
         if _is_bilibili_url(url):
@@ -90,33 +149,54 @@ class SubtitleExtractor:
         manual_subs = {k: v for k, v in manual_subs.items() if k != "danmaku"}
 
         lang, sub_url, sub_type = self._pick_best_subtitle(manual_subs, auto_subs)
-        if not sub_url:
-            return {
-                "has_subtitle": False,
-                "language": "",
-                "subtitle_type": "none",
-                "segments": [],
-                "full_text": "",
-            }
+        subtitle_error_message = ""
+        if sub_url:
+            try:
+                segments = self._download_and_parse(url, lang, sub_type)
+            except Exception as error:
+                segments = []
+                subtitle_error_message = str(error)
+            if segments:
+                return self._build_subtitle_result(
+                    language=lang,
+                    subtitle_type=sub_type,
+                    segments=segments,
+                )
 
-        segments = self._download_and_parse(url, lang, sub_type)
+        return self._transcribe_audio_fallback(url, info, subtitle_error_message)
 
+    @staticmethod
+    def _empty_result(detail_message: str = "") -> dict:
+        return {
+            "has_subtitle": False,
+            "language": "",
+            "subtitle_type": "none",
+            "segments": [],
+            "full_text": "",
+            "detail_message": detail_message,
+        }
+
+    @staticmethod
+    def _build_subtitle_result(
+        *,
+        language: str,
+        subtitle_type: str,
+        segments: list[dict],
+        detail_message: str = "",
+    ) -> dict:
         full_text = " ".join(seg["text"] for seg in segments)
-
         return {
             "has_subtitle": True,
-            "language": lang,
-            "subtitle_type": sub_type,
+            "language": language,
+            "subtitle_type": subtitle_type,
             "segments": segments,
             "full_text": full_text,
+            "detail_message": detail_message,
         }
 
     def _extract_bilibili(self, url: str) -> dict:
         """B 站专用字幕提取（通过 dm/view API 获取 CC 字幕和 AI 字幕）"""
-        empty = {
-            "has_subtitle": False, "language": "", "subtitle_type": "none",
-            "segments": [], "full_text": "",
-        }
+        empty = self._empty_result()
         try:
             bvid = self._parse_bvid(url)
             if not bvid:
@@ -180,14 +260,11 @@ class SubtitleExtractor:
                     "text": content,
                 })
 
-            full_text = " ".join(seg["text"] for seg in segments)
-            return {
-                "has_subtitle": True,
-                "language": best.get("lan", "zh"),
-                "subtitle_type": sub_type,
-                "segments": segments,
-                "full_text": full_text,
-            }
+            return self._build_subtitle_result(
+                language=best.get("lan", "zh"),
+                subtitle_type=sub_type,
+                segments=segments,
+            )
         except Exception:
             return empty
 
@@ -280,6 +357,323 @@ class SubtitleExtractor:
 
             vtt_path = os.path.join(tmp_dir, vtt_files[0])
             return self._parse_vtt(vtt_path)
+
+    def _transcribe_audio_fallback(self, url: str, info: dict, subtitle_error_message: str = "") -> dict:
+        reason_prefix = "该视频暂无平台字幕"
+        if subtitle_error_message:
+            reason_prefix = f"平台字幕提取失败（{subtitle_error_message}）"
+
+        if not self.enable_audio_fallback:
+            return self._empty_result(f"{reason_prefix}，且当前站点未开启语音转写兜底。")
+
+        if not _get_first_env("OPENAI_API_KEY"):
+            return self._empty_result(f"{reason_prefix}，且当前站点未配置 OpenAI 语音转写能力。")
+
+        duration = float(info.get("duration") or 0)
+        if duration and duration > self.transcription_max_duration_seconds:
+            minutes = max(1, self.transcription_max_duration_seconds // 60)
+            return self._empty_result(
+                f"{reason_prefix}，且视频时长超过 {minutes} 分钟，当前未执行语音转写。"
+            )
+
+        try:
+            segments, full_text = self._transcribe_audio(url, duration)
+        except Exception as error:
+            return self._empty_result(
+                f"{reason_prefix}，语音转写兜底也失败了：{error}"
+            )
+
+        if not full_text.strip():
+            return self._empty_result(f"{reason_prefix}，语音转写也没有返回可用文本。")
+
+        if not segments:
+            segments = self._build_transcribed_segments(
+                full_text,
+                start_offset=0,
+                duration=duration or max(15.0, len(full_text) / 10),
+            )
+
+        return self._build_subtitle_result(
+            language=str(info.get("language") or "auto"),
+            subtitle_type="transcribed",
+            segments=segments,
+            detail_message="该文本由 AI 根据视频音轨自动转写生成，时间轴为近似估算。",
+        )
+
+    def _transcribe_audio(self, url: str, duration: float) -> tuple[list[dict], str]:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audio_path = self._download_audio_track(url, tmp_dir)
+            chunk_files = self._prepare_audio_files_for_transcription(
+                audio_path,
+                duration=duration,
+                tmp_dir=tmp_dir,
+            )
+
+            transcript_segments: list[dict] = []
+            transcript_texts: list[str] = []
+            cursor = 0.0
+
+            for index, (chunk_path, chunk_duration) in enumerate(chunk_files):
+                text = self._transcribe_audio_file(chunk_path)
+                if not text:
+                    cursor += chunk_duration
+                    continue
+
+                transcript_texts.append(text)
+                transcript_segments.extend(
+                    self._build_transcribed_segments(
+                        text,
+                        start_offset=cursor,
+                        duration=chunk_duration or max(8.0, len(text) / 10),
+                    )
+                )
+                cursor += chunk_duration
+
+            full_text = "\n".join(part for part in transcript_texts if part).strip()
+            return transcript_segments, full_text
+
+    def _get_transcription_client(self) -> OpenAI:
+        if self._transcription_client is None:
+            self._transcription_client = OpenAI(**_build_openai_audio_client_kwargs())
+        return self._transcription_client
+
+    def _download_audio_track(self, url: str, tmp_dir: str) -> str:
+        output_template = os.path.join(tmp_dir, "audio.%(ext)s")
+        ydl_opts = _build_ydl_opts(
+            url,
+            format="bestaudio[abr<=64]/bestaudio/best",
+            skip_download=False,
+            outtmpl=output_template,
+        )
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                requested_downloads = info.get("requested_downloads") or []
+                if requested_downloads:
+                    filepath = requested_downloads[0].get("filepath")
+                    if filepath and os.path.exists(filepath):
+                        return filepath
+
+                prepared = ydl.prepare_filename(info)
+                if os.path.exists(prepared):
+                    return prepared
+        except Exception as error:
+            raise _normalize_subtitle_error(url, error)
+
+        for filename in os.listdir(tmp_dir):
+            candidate = os.path.join(tmp_dir, filename)
+            if os.path.isfile(candidate):
+                return candidate
+
+        raise ValueError("下载音轨失败，无法执行语音转写")
+
+    def _prepare_audio_files_for_transcription(
+        self,
+        audio_path: str,
+        *,
+        duration: float,
+        tmp_dir: str,
+    ) -> list[tuple[str, float]]:
+        working_path = audio_path
+        working_duration = duration or self._probe_duration(audio_path)
+
+        if os.path.getsize(working_path) > self.transcription_max_bytes:
+            compressed_path = os.path.join(tmp_dir, "audio-compressed.mp3")
+            self._run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    working_path,
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-b:a",
+                    "32k",
+                    compressed_path,
+                ]
+            )
+            working_path = compressed_path
+            working_duration = working_duration or self._probe_duration(working_path)
+
+        if os.path.getsize(working_path) <= self.transcription_max_bytes:
+            return [(working_path, working_duration)]
+
+        if not working_duration:
+            raise ValueError("音频文件超过 25MB，且无法确定时长来自动分段转写")
+
+        chunk_count = max(2, math.ceil(os.path.getsize(working_path) / self.transcription_max_bytes))
+        chunk_duration = max(60, math.ceil(working_duration / chunk_count))
+        segment_template = os.path.join(tmp_dir, "chunk_%03d.mp3")
+        self._run_ffmpeg(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                working_path,
+                "-f",
+                "segment",
+                "-segment_time",
+                str(chunk_duration),
+                "-c",
+                "copy",
+                segment_template,
+            ]
+        )
+
+        chunk_paths = sorted(
+            os.path.join(tmp_dir, name)
+            for name in os.listdir(tmp_dir)
+            if name.startswith("chunk_") and name.endswith(".mp3")
+        )
+        if not chunk_paths:
+            raise ValueError("音频分段失败，无法执行语音转写")
+
+        remaining = working_duration
+        prepared_chunks: list[tuple[str, float]] = []
+        for index, chunk_path in enumerate(chunk_paths):
+            is_last = index == len(chunk_paths) - 1
+            current_duration = remaining if is_last else min(chunk_duration, remaining)
+            prepared_chunks.append((chunk_path, max(1.0, current_duration)))
+            remaining = max(0.0, remaining - current_duration)
+
+        return prepared_chunks
+
+    def _transcribe_audio_file(self, audio_path: str) -> str:
+        client = self._get_transcription_client()
+        with open(audio_path, "rb") as audio_file:
+            response = client.audio.transcriptions.create(
+                model=self.transcription_model,
+                file=audio_file,
+                response_format="text",
+            )
+
+        if isinstance(response, str):
+            return response.strip()
+
+        text = getattr(response, "text", "")
+        if text:
+            return text.strip()
+
+        if hasattr(response, "model_dump"):
+            data = response.model_dump()
+            return str(data.get("text", "")).strip()
+
+        return ""
+
+    @staticmethod
+    def _split_transcribed_text(text: str, max_chars: int = 90) -> list[str]:
+        normalized = re.sub(r"\s+", " ", text).strip()
+        if not normalized:
+            return []
+
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(r"(?<=[。！？!?\.])\s+", normalized)
+            if sentence.strip()
+        ]
+        if not sentences:
+            sentences = [normalized]
+
+        chunks: list[str] = []
+        for sentence in sentences:
+            if len(sentence) <= max_chars:
+                chunks.append(sentence)
+                continue
+
+            if " " in sentence:
+                words = sentence.split(" ")
+                current = []
+                current_len = 0
+                for word in words:
+                    extra = len(word) + (1 if current else 0)
+                    if current and current_len + extra > max_chars:
+                        chunks.append(" ".join(current))
+                        current = [word]
+                        current_len = len(word)
+                    else:
+                        current.append(word)
+                        current_len += extra
+                if current:
+                    chunks.append(" ".join(current))
+            else:
+                for start in range(0, len(sentence), max_chars):
+                    chunks.append(sentence[start : start + max_chars])
+
+        return [chunk for chunk in chunks if chunk]
+
+    def _build_transcribed_segments(
+        self,
+        text: str,
+        *,
+        start_offset: float,
+        duration: float,
+    ) -> list[dict]:
+        chunks = self._split_transcribed_text(text)
+        if not chunks:
+            return []
+
+        total_length = sum(len(chunk) for chunk in chunks)
+        if total_length <= 0:
+            total_length = len(text)
+        if duration <= 0:
+            duration = max(8.0, len(text) / 10)
+
+        segments: list[dict] = []
+        cursor = start_offset
+        for index, chunk in enumerate(chunks):
+            is_last = index == len(chunks) - 1
+            weight = len(chunk) / total_length if total_length else 1 / len(chunks)
+            chunk_duration = max(1.5, round(duration * weight, 2))
+            end = start_offset + duration if is_last else min(start_offset + duration, cursor + chunk_duration)
+            segments.append(
+                {
+                    "start": round(cursor, 2),
+                    "end": round(end, 2),
+                    "text": chunk,
+                }
+            )
+            cursor = end
+        return segments
+
+    @staticmethod
+    def _probe_duration(filepath: str) -> float:
+        command = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            filepath,
+        ]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return 0.0
+        try:
+            return float(result.stdout.strip())
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _run_ffmpeg(command: list[str]) -> None:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "未知错误").strip()
+            raise ValueError(f"音频处理失败：{message}")
 
     @staticmethod
     def _parse_vtt(filepath: str) -> list[dict]:

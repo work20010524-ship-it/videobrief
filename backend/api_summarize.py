@@ -34,13 +34,18 @@ def _check_summary_permission(user: dict | None):
     返回 (allowed, remaining, message)
     """
     if not user:
-        return False, 0, "请先登录后使用 AI 总结功能"
+        return False, 0, "请先登录后使用 AI 总结功能", "login_required"
 
     allowed, remaining = check_and_increment_summary(user["id"])
     if not allowed:
-        return False, 0, f"今日免费 AI 总结次数已用完（每日 {FREE_DAILY_SUMMARY_LIMIT} 次），升级 Pro 可无限使用"
+        return (
+            False,
+            0,
+            f"今日免费 AI 总结次数已用完（每日 {FREE_DAILY_SUMMARY_LIMIT} 次），升级 Pro 可无限使用",
+            "quota_exceeded",
+        )
 
-    return True, remaining, None
+    return True, remaining, None, None
 
 
 def _get_summarizer():
@@ -68,10 +73,18 @@ async def summarize_video(req: SummarizeRequest, user: dict | None = Depends(get
     AI 视频总结（SSE 流式）
     事件类型: subtitle / summary / mindmap / done / error / quota
     """
-    allowed, remaining, message = _check_summary_permission(user)
+    allowed, remaining, message, code = _check_summary_permission(user)
     if not allowed:
         yield ServerSentEvent(
-            raw_data=json.dumps({"message": message, "need_login": user is None, "need_vip": user is not None}, ensure_ascii=False),
+            raw_data=json.dumps(
+                {
+                    "code": code,
+                    "message": message,
+                    "need_login": user is None,
+                    "need_vip": user is not None,
+                },
+                ensure_ascii=False,
+            ),
             event="error",
         )
         return
@@ -90,7 +103,13 @@ async def summarize_video(req: SummarizeRequest, user: dict | None = Depends(get
 
         if not subtitle_data["has_subtitle"]:
             yield ServerSentEvent(
-                raw_data=json.dumps({"message": "该视频没有可用的字幕，无法生成总结"}, ensure_ascii=False),
+                raw_data=json.dumps(
+                    {
+                        "code": "no_subtitle",
+                        "message": subtitle_data.get("detail_message") or "该视频没有可用的字幕，无法生成总结",
+                    },
+                    ensure_ascii=False,
+                ),
                 event="error",
             )
             return
@@ -119,7 +138,10 @@ async def summarize_video(req: SummarizeRequest, user: dict | None = Depends(get
 
     except Exception as e:
         yield ServerSentEvent(
-            raw_data=json.dumps({"message": f"总结失败: {str(e)}"}, ensure_ascii=False),
+            raw_data=json.dumps(
+                {"code": "summary_failed", "message": f"总结失败: {str(e)}"},
+                ensure_ascii=False,
+            ),
             event="error",
         )
 
@@ -136,7 +158,13 @@ async def chat_with_video(req: ChatRequest, user: dict | None = Depends(get_opti
             )
             if not subtitle_data["has_subtitle"]:
                 yield ServerSentEvent(
-                    raw_data=json.dumps({"message": "该视频没有可用的字幕，无法回答问题"}, ensure_ascii=False),
+                    raw_data=json.dumps(
+                        {
+                            "code": "no_subtitle",
+                            "message": subtitle_data.get("detail_message") or "该视频没有可用的字幕，无法回答问题",
+                        },
+                        ensure_ascii=False,
+                    ),
                     event="error",
                 )
                 return
@@ -152,6 +180,9 @@ async def chat_with_video(req: ChatRequest, user: dict | None = Depends(get_opti
 
     except Exception as e:
         yield ServerSentEvent(
-            raw_data=json.dumps({"message": f"回答失败: {str(e)}"}, ensure_ascii=False),
+            raw_data=json.dumps(
+                {"code": "chat_failed", "message": f"回答失败: {str(e)}"},
+                ensure_ascii=False,
+            ),
             event="error",
         )

@@ -37,6 +37,33 @@
               class="prose prose-slate prose-sm max-w-none summary-prose"
               v-html="renderedSummary"
             ></div>
+            <div
+              v-else-if="!loading && summaryNotice"
+              class="rounded-2xl border border-border-light bg-bg-section p-6 text-center"
+            >
+              <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white text-2xl shadow-sm">
+                {{ summaryNotice.type === 'quota' ? '✨' : summaryNotice.type === 'error' ? '⚠️' : '📝' }}
+              </div>
+              <h3 class="text-base font-semibold text-text-primary">{{ summaryNotice.title }}</h3>
+              <p class="mt-2 text-sm leading-7 text-text-secondary">{{ summaryNotice.message }}</p>
+              <button
+                v-if="summaryNotice.action"
+                @click="handleSummaryNoticeAction"
+                class="mt-4 inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark cursor-pointer"
+              >
+                {{ summaryNotice.actionLabel }}
+              </button>
+            </div>
+            <div
+              v-else-if="!loading"
+              class="rounded-2xl border border-dashed border-border-light bg-bg-section px-6 py-10 text-center text-text-muted"
+            >
+              <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white text-2xl shadow-sm">
+                📋
+              </div>
+              <p class="text-sm font-medium text-text-primary">暂时还没有可展示的总结内容</p>
+              <p class="mt-1 text-xs leading-6 text-text-secondary">如果视频没有原生字幕，我们会自动尝试语音转写后再生成总结。</p>
+            </div>
             <div v-if="loading && summaryText" class="mt-2 inline-flex items-center gap-1.5 text-xs text-text-muted">
               <span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
               AI 正在生成中...
@@ -59,7 +86,7 @@
                 <div class="text-sm text-text-secondary">
                   共 {{ subtitleData.segments.length }} 条字幕
                   <span v-if="subtitleData.language" class="ml-2 px-2 py-0.5 bg-primary-light text-primary rounded-full text-xs">
-                    {{ subtitleData.subtitle_type === 'manual' ? '人工字幕' : '自动字幕' }} · {{ subtitleData.language }}
+                    {{ getSubtitleMeta(subtitleData) }}
                   </span>
                 </div>
                 <div class="flex items-center gap-3">
@@ -119,7 +146,10 @@
               <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <p class="text-sm">该视频暂无可用字幕</p>
+              <p class="text-sm text-text-primary">该视频暂时没有可展示的字幕文本</p>
+              <p v-if="subtitleData.detail_message" class="mt-2 max-w-md text-center text-xs leading-6 text-text-secondary">
+                {{ subtitleData.detail_message }}
+              </p>
             </div>
             <div v-else class="flex flex-col items-center justify-center py-16">
               <div class="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin mb-3"></div>
@@ -209,11 +239,27 @@
                 class="space-y-4 max-h-[400px] overflow-y-auto pr-1"
               >
                 <div v-if="chatMessages.length === 0" class="flex flex-col items-center justify-center py-12 text-text-muted">
-                  <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  <p class="text-sm mb-1">向 AI 提问关于这个视频的任何问题</p>
-                  <p class="text-xs">例如："这个视频的核心观点是什么？"</p>
+                  <template v-if="loading">
+                    <div class="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin mb-3"></div>
+                    <p class="text-sm mb-1">正在准备问答上下文...</p>
+                    <p class="text-xs">我们会优先读取平台字幕，没有字幕时再尝试语音转写。</p>
+                  </template>
+                  <template v-else-if="subtitleData.has_subtitle">
+                    <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <p class="text-sm mb-1">向 AI 提问关于这个视频的任何问题</p>
+                    <p class="text-xs">例如："这个视频的核心观点是什么？"</p>
+                  </template>
+                  <template v-else>
+                    <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M4.93 19h14.14c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.198 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <p class="text-sm mb-1 text-text-primary">暂时还没有可用于问答的文本</p>
+                    <p class="max-w-md text-center text-xs leading-6 text-text-secondary">
+                      {{ subtitleData.detail_message || '如果平台没有字幕，系统会尝试语音转写；转写失败时，这里会告诉你具体原因。' }}
+                    </p>
+                  </template>
                 </div>
                 <div
                   v-for="(msg, idx) in chatMessages"
@@ -247,7 +293,7 @@
                   v-model="chatInput"
                   @keydown.enter.prevent="sendQuestion"
                   type="text"
-                  placeholder="输入你的问题..."
+                  :placeholder="chatPlaceholder"
                   class="flex-1 h-11 px-4 rounded-xl border border-border bg-white text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                   :disabled="chatLoading"
                 />
@@ -273,7 +319,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import { Transformer } from 'markmap-lib'
 import { Markmap } from 'markmap-view'
@@ -298,7 +344,8 @@ const loading = ref(false)
 const loadingMessage = ref('正在提取视频字幕...')
 
 const summaryText = ref('')
-const subtitleData = ref({ segments: [], has_subtitle: false })
+const subtitleData = ref({ segments: [], has_subtitle: false, subtitle_type: 'none', detail_message: '', full_text: '' })
+const summaryNotice = ref(null)
 const subtitleExpanded = ref(false)
 const mindmapMarkdown = ref('')
 const mindmapSvg = ref(null)
@@ -311,6 +358,11 @@ const chatLoading = ref(false)
 const chatContainer = ref(null)
 
 const renderedSummary = ref('')
+const chatPlaceholder = computed(() => {
+  if (chatLoading.value) return 'AI 正在思考中...'
+  if (loading.value && !subtitleData.value.has_subtitle) return '正在准备视频内容...'
+  return '输入你的问题...'
+})
 
 // 思维导图全屏状态
 const isFullscreen = ref(false)
@@ -368,6 +420,32 @@ function formatTime(seconds) {
   const s = Math.floor(seconds % 60)
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function getSubtitleMeta(data) {
+  const typeLabel = data.subtitle_type === 'manual'
+    ? '人工字幕'
+    : data.subtitle_type === 'auto'
+      ? '自动字幕'
+      : data.subtitle_type === 'transcribed'
+        ? 'AI 转写'
+        : '字幕'
+
+  if (!data.language || data.language === 'auto') {
+    return typeLabel
+  }
+  return `${typeLabel} · ${data.language}`
+}
+
+function handleSummaryNoticeAction() {
+  if (!summaryNotice.value?.action) return
+  if (summaryNotice.value.action === 'upgrade') {
+    emit('need-vip')
+    return
+  }
+  if (summaryNotice.value.action === 'login') {
+    emit('need-login')
+  }
 }
 
 // ===== 思维导图全屏 =====
@@ -651,6 +729,8 @@ async function startSummarize() {
   summaryText.value = ''
   mindmapMarkdown.value = ''
   quotaInfo.value = null
+  summaryNotice.value = null
+  subtitleData.value = { segments: [], has_subtitle: false, subtitle_type: 'none', detail_message: '', full_text: '' }
   loadingMessage.value = '正在提取视频字幕...'
 
   try {
@@ -659,7 +739,9 @@ async function startSummarize() {
         try {
           subtitleData.value = JSON.parse(data)
           if (subtitleData.value.has_subtitle) {
-            loadingMessage.value = 'AI 正在分析视频内容...'
+            loadingMessage.value = subtitleData.value.subtitle_type === 'transcribed'
+              ? 'AI 已完成语音转写，正在生成总结...'
+              : 'AI 正在分析视频内容...'
           }
         } catch (e) { /* ignore parse error */ }
       },
@@ -683,22 +765,47 @@ async function startSummarize() {
         try {
           const parsed = JSON.parse(data)
           if (parsed.need_login) {
+            summaryNotice.value = {
+              type: 'login',
+              title: '登录后即可使用 AI 总结',
+              message: parsed.message || '请先登录后再试一次。',
+              action: 'login',
+              actionLabel: '立即登录',
+            }
             emit('need-login')
             return
           }
           if (parsed.need_vip) {
-            emit('need-vip')
+            summaryNotice.value = {
+              type: 'quota',
+              title: '今日免费次数已用完',
+              message: parsed.message || '升级 Pro 后可继续使用 AI 总结、思维导图和更高额度能力。',
+              action: 'upgrade',
+              actionLabel: '升级 Pro',
+            }
             return
           }
-          alert(parsed.message || '总结失败')
+          summaryNotice.value = {
+            type: parsed.code === 'no_subtitle' ? 'empty' : 'error',
+            title: parsed.code === 'no_subtitle' ? '暂时无法生成总结' : '总结生成失败',
+            message: parsed.message || '请稍后再试一次。',
+          }
         } catch (e) {
-          alert('总结失败: ' + data)
+          summaryNotice.value = {
+            type: 'error',
+            title: '总结生成失败',
+            message: '总结失败：' + data,
+          }
         }
       },
     })
   } catch (err) {
     loading.value = false
-    alert('总结请求失败: ' + err.message)
+    summaryNotice.value = {
+      type: 'error',
+      title: '总结请求失败',
+      message: err.message || '请稍后重试',
+    }
   }
 }
 
