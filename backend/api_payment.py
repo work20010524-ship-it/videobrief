@@ -37,6 +37,18 @@ def _get_plans() -> dict:
     }
 
 
+def _get_payment_method_types() -> list[str]:
+    """
+    Stripe Checkout 支付方式控制。
+    - 留空：走 Stripe Dashboard 的动态支付方式，推荐用于卡、支付宝、微信支付混合展示。
+    - 手动指定：例如 STRIPE_PAYMENT_METHOD_TYPES=card,alipay,wechat_pay
+    """
+    raw = _get_config("STRIPE_PAYMENT_METHOD_TYPES", "").strip()
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 class CreateCheckoutRequest(BaseModel):
     plan_type: str = "monthly"
 
@@ -75,25 +87,30 @@ async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depen
     )
 
     try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[
+        session_kwargs = {
+            "line_items": [
                 {
                     "price": price_id,
                     "quantity": 1,
                 }
             ],
-            mode="payment",
-            success_url=f"{frontend_url}?payment=success&order_no={order_no}",
-            cancel_url=f"{frontend_url}?payment=cancel&order_no={order_no}",
-            client_reference_id=str(user["id"]),
-            customer_email=user["email"],
-            metadata={
+            "mode": "payment",
+            "success_url": f"{frontend_url}?payment=success&order_no={order_no}",
+            "cancel_url": f"{frontend_url}?payment=cancel&order_no={order_no}",
+            "client_reference_id": str(user["id"]),
+            "customer_email": user["email"],
+            "metadata": {
                 "order_no": order_no,
                 "user_id": str(user["id"]),
                 "plan_type": req.plan_type,
             },
-        )
+        }
+
+        payment_method_types = _get_payment_method_types()
+        if payment_method_types:
+            session_kwargs["payment_method_types"] = payment_method_types
+
+        session = stripe.checkout.Session.create(**session_kwargs)
 
         update_order_stripe_session(order_no, session.id)
 
