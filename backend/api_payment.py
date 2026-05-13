@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -49,6 +50,24 @@ def _get_payment_method_types() -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _normalize_frontend_url(raw_url: str) -> str:
+    url = (raw_url or "").strip().strip('"').strip("'")
+    if not url:
+        raise HTTPException(status_code=500, detail="支付回跳地址未配置，请设置 FRONTEND_URL")
+
+    if "://" not in url:
+        url = f"http://{url}"
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"FRONTEND_URL 配置无效：{raw_url}。请填写类似 http://159.65.12.145 或 https://video.kateai.cn",
+        )
+
+    return url.rstrip("/")
+
+
 class CreateCheckoutRequest(BaseModel):
     plan_type: str = "monthly"
 
@@ -63,7 +82,7 @@ def _generate_order_no(user_id: int) -> str:
 async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depends(get_current_user)):
     secret_key = _get_config("STRIPE_SECRET_KEY")
     price_id = _get_config("STRIPE_PRICE_ID_MONTHLY")
-    frontend_url = _get_config("FRONTEND_URL", "http://localhost:5173")
+    frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
 
     if not secret_key:
         raise HTTPException(status_code=500, detail="支付服务未配置，请设置 STRIPE_SECRET_KEY")
@@ -109,6 +128,10 @@ async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depen
         payment_method_types = _get_payment_method_types()
         if payment_method_types:
             session_kwargs["payment_method_types"] = payment_method_types
+            if "wechat_pay" in payment_method_types:
+                session_kwargs["payment_method_options"] = {
+                    "wechat_pay": {"client": "web"},
+                }
 
         session = stripe.checkout.Session.create(**session_kwargs)
 
