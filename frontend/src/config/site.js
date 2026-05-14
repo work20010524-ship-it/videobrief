@@ -4,6 +4,10 @@ const siteName = env.VITE_SITE_NAME || 'VideoBrief'
 const siteDomain = (env.VITE_SITE_DOMAIN || 'https://video.kateai.cn').replace(/\/+$/, '')
 const supportPlatformCount = env.VITE_PLATFORM_COUNT || '1800+'
 const freeSummaryLimit = env.VITE_FREE_SUMMARY_LIMIT || '3'
+const goSummaryLimit = env.VITE_GO_SUMMARY_LIMIT || '3'
+const plusSummaryLimit = env.VITE_PLUS_SUMMARY_LIMIT || '10'
+const goMonthlyPrice = env.VITE_GO_MONTHLY_PRICE || '3.9'
+const plusMonthlyPrice = env.VITE_PLUS_MONTHLY_PRICE || '6.9'
 const vipMonthlyPrice = env.VITE_VIP_MONTHLY_PRICE || '9.9'
 const currencySymbol = env.VITE_CURRENCY_SYMBOL || '¥'
 const supportEmail = env.VITE_SUPPORT_EMAIL || 'hello@kateai.cn'
@@ -100,7 +104,7 @@ export const siteConfig = {
     ],
   },
   pricing: {
-    note: '当前后端已接通 Pro 月费链路；Go 和 Plus 先作为产品规划位展示。',
+    note: 'Go / Plus / Pro 已接入后端额度；Go 每日 3 次，Plus 每日 10 次，Pro 不限次数。',
     plans: [
       {
         key: 'free',
@@ -120,13 +124,13 @@ export const siteConfig = {
       {
         key: 'go',
         name: 'Go',
-        price: '待定',
-        cycle: '',
+        price: goMonthlyPrice,
+        cycle: '/月',
         description: '面向轻度使用和移动端高频场景',
-        badge: '规划中',
-        action: 'planned',
+        badge: '轻量',
+        action: 'open-vip',
         features: [
-          '更高的每日 AI 额度',
+          `每日 ${goSummaryLimit} 次 AI 总结`,
           '更快的摘要生成优先级',
           '轻量导出与历史记录',
           '适合作为入门付费层',
@@ -135,13 +139,13 @@ export const siteConfig = {
       {
         key: 'plus',
         name: 'Plus',
-        price: '待定',
-        cycle: '',
+        price: plusMonthlyPrice,
+        cycle: '/月',
         description: '面向常规创作者与学习型用户',
-        badge: '规划中',
-        action: 'planned',
+        badge: '常用',
+        action: 'open-vip',
         features: [
-          '更高的 AI 问答和字幕额度',
+          `每日 ${plusSummaryLimit} 次 AI 总结`,
           '思维导图导出增强',
           '更丰富的历史与收藏能力',
           '适合做中层主力套餐',

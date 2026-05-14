@@ -65,7 +65,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
           <span class="font-medium text-sm">
-            {{ paymentToast === 'success' ? 'Pro 会员开通成功，已为你激活高级功能' : '支付已取消，你可以稍后再次开通' }}
+            {{ paymentToast === 'success' ? '会员开通成功，已为你激活对应套餐额度' : '支付已取消，你可以稍后再次开通' }}
           </span>
         </div>
       </div>
@@ -82,7 +82,7 @@
           <div class="flex items-start justify-between gap-4 mb-5">
             <div>
               <h3 class="text-lg font-semibold text-text-primary">选择支付方式</h3>
-              <p class="mt-1 text-sm text-text-secondary">开通 VideoBrief Pro，支付成功后自动增加 30 天会员。</p>
+              <p class="mt-1 text-sm text-text-secondary">开通 VideoBrief {{ selectedPlanName }}，支付成功后自动增加 30 天会员。</p>
             </div>
             <button
               @click="paymentModalVisible = false"
@@ -201,12 +201,22 @@ async function restoreUser() {
 
 // ===== VIP 购买 =====
 const paymentModalVisible = ref(false)
+const selectedPlanType = ref('pro')
+const planNameMap = {
+  go: 'Go',
+  plus: 'Plus',
+  pro: 'Pro',
+  monthly: 'Pro',
+}
+const selectedPlanName = ref('Pro')
 
-async function handleOpenVip() {
+async function handleOpenVip(planType = 'pro') {
   if (!isLoggedIn()) {
     showAuthModal('login')
     return
   }
+  selectedPlanType.value = planType || 'pro'
+  selectedPlanName.value = planNameMap[selectedPlanType.value] || 'Pro'
   paymentModalVisible.value = true
 }
 
@@ -217,7 +227,7 @@ async function startCheckout(paymentType) {
     return
   }
   try {
-    const { checkout_url } = await createCheckoutSession('monthly', paymentType)
+    const { checkout_url } = await createCheckoutSession(selectedPlanType.value, paymentType)
     window.location.href = checkout_url
   } catch (err) {
     paymentModalVisible.value = false

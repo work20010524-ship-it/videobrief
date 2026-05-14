@@ -5,6 +5,25 @@ from contextlib import contextmanager
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "app.db")
 
+PLAN_FREE = "free"
+PLAN_GO = "go"
+PLAN_PLUS = "plus"
+PLAN_PRO = "pro"
+
+PLAN_DAILY_SUMMARY_LIMITS = {
+    PLAN_FREE: 3,
+    PLAN_GO: 3,
+    PLAN_PLUS: 10,
+    PLAN_PRO: -1,  # -1 means unlimited.
+}
+
+PLAN_LABELS = {
+    PLAN_FREE: "Free",
+    PLAN_GO: "Go",
+    PLAN_PLUS: "Plus",
+    PLAN_PRO: "Pro",
+}
+
 
 def get_db_path():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -36,6 +55,7 @@ def init_db():
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 is_vip INTEGER DEFAULT 0,
+                plan_tier TEXT DEFAULT 'free',
                 vip_expire_at TEXT,
                 daily_summary_count INTEGER DEFAULT 0,
                 last_summary_date TEXT,
@@ -64,9 +84,65 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no);
             CREATE INDEX IF NOT EXISTS idx_orders_stripe_session_id ON orders(stripe_session_id);
         """)
+        _migrate_users_table(conn)
 
 
-FREE_DAILY_SUMMARY_LIMIT = 3
+FREE_DAILY_SUMMARY_LIMIT = PLAN_DAILY_SUMMARY_LIMITS[PLAN_FREE]
+
+
+def _migrate_users_table(conn: sqlite3.Connection):
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(users)").fetchall()
+    }
+    if "plan_tier" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN plan_tier TEXT DEFAULT 'free'")
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def normalize_plan_tier(plan_tier: str | None) -> str:
+    plan = (plan_tier or PLAN_FREE).strip().lower()
+    if plan == "monthly":
+        return PLAN_PRO
+    if plan in {"go_monthly", "go"}:
+        return PLAN_GO
+    if plan in {"plus_monthly", "plus"}:
+        return PLAN_PLUS
+    if plan in {"pro_monthly", "pro"}:
+        return PLAN_PRO
+    return PLAN_FREE
+
+
+def get_effective_plan_tier(user: dict | sqlite3.Row | None) -> str:
+    if not user:
+        return PLAN_FREE
+
+    expire = _parse_datetime(user["vip_expire_at"] if user["vip_expire_at"] else None)
+    has_active_paid_period = bool(user["is_vip"] and expire and expire > datetime.now(timezone.utc))
+    if not has_active_paid_period:
+        return PLAN_FREE
+
+    plan_tier = normalize_plan_tier(user["plan_tier"] if "plan_tier" in user.keys() else PLAN_FREE)
+
+    # Backward compatibility: old Pro users were stored as is_vip=1 without plan_tier.
+    if plan_tier == PLAN_FREE:
+        return PLAN_PRO
+    return plan_tier
+
+
+def get_daily_summary_limit_for_plan(plan_tier: str) -> int:
+    return PLAN_DAILY_SUMMARY_LIMITS.get(normalize_plan_tier(plan_tier), FREE_DAILY_SUMMARY_LIMIT)
 
 
 def get_user_by_email(email: str) -> dict | None:
@@ -90,38 +166,39 @@ def create_user(email: str, password_hash: str) -> dict:
         return {"id": cursor.lastrowid, "email": email}
 
 
-def check_and_increment_summary(user_id: int) -> tuple[bool, int]:
+def check_and_increment_summary(user_id: int) -> tuple[bool, int, int, str]:
     """
     检查用户是否可以使用 AI 总结，并自增计数。
-    返回 (allowed, remaining_count)
+    返回 (allowed, remaining_count, daily_limit, plan_tier)
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with get_db() as conn:
         user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
-            return False, 0
+            return False, 0, FREE_DAILY_SUMMARY_LIMIT, PLAN_FREE
 
-        if user["is_vip"] and user["vip_expire_at"]:
-            expire = datetime.fromisoformat(user["vip_expire_at"])
-            if expire > datetime.now(timezone.utc):
-                return True, -1  # -1 means unlimited
+        plan_tier = get_effective_plan_tier(user)
+        daily_limit = get_daily_summary_limit_for_plan(plan_tier)
+
+        if daily_limit < 0:
+            return True, -1, daily_limit, plan_tier
 
         if user["last_summary_date"] != today:
             conn.execute(
                 "UPDATE users SET daily_summary_count = 1, last_summary_date = ? WHERE id = ?",
                 (today, user_id),
             )
-            return True, FREE_DAILY_SUMMARY_LIMIT - 1
+            return True, daily_limit - 1, daily_limit, plan_tier
 
-        current = user["daily_summary_count"]
-        if current >= FREE_DAILY_SUMMARY_LIMIT:
-            return False, 0
+        current = int(user["daily_summary_count"] or 0)
+        if current >= daily_limit:
+            return False, 0, daily_limit, plan_tier
 
         conn.execute(
             "UPDATE users SET daily_summary_count = daily_summary_count + 1 WHERE id = ?",
             (user_id,),
         )
-        return True, FREE_DAILY_SUMMARY_LIMIT - current - 1
+        return True, daily_limit - current - 1, daily_limit, plan_tier
 
 
 def create_order(user_id: int, order_no: str, amount: int, currency: str = "cny", plan_type: str = "monthly") -> dict:
@@ -171,12 +248,21 @@ def complete_order(session_id: str, payment_intent_id: str) -> dict | None:
         if current_expire and current_expire > base_time:
             base_time = current_expire
 
-        if order["plan_type"] == "monthly":
+        if order["plan_type"] in {"monthly", "pro", "pro_monthly"}:
             new_expire = base_time + relativedelta(months=1)
+            plan_tier = PLAN_PRO
+        elif order["plan_type"] in {"go", "go_monthly"}:
+            new_expire = base_time + relativedelta(months=1)
+            plan_tier = PLAN_GO
+        elif order["plan_type"] in {"plus", "plus_monthly"}:
+            new_expire = base_time + relativedelta(months=1)
+            plan_tier = PLAN_PLUS
         elif order["plan_type"] == "yearly":
             new_expire = base_time + relativedelta(years=1)
+            plan_tier = PLAN_PRO
         else:
             new_expire = base_time + relativedelta(months=1)
+            plan_tier = PLAN_PRO
 
         conn.execute(
             "UPDATE orders SET status = 'paid', stripe_payment_intent_id = ?, paid_at = ?, updated_at = ? WHERE id = ?",
@@ -184,8 +270,8 @@ def complete_order(session_id: str, payment_intent_id: str) -> dict | None:
         )
 
         conn.execute(
-            "UPDATE users SET is_vip = 1, vip_expire_at = ?, updated_at = ? WHERE id = ?",
-            (new_expire.isoformat(), now, order["user_id"]),
+            "UPDATE users SET is_vip = 1, plan_tier = ?, vip_expire_at = ?, updated_at = ? WHERE id = ?",
+            (plan_tier, new_expire.isoformat(), now, order["user_id"]),
         )
 
         return dict(order)

@@ -9,7 +9,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel
 
 from auth import get_optional_user
-from database import check_and_increment_summary, FREE_DAILY_SUMMARY_LIMIT
+from database import PLAN_LABELS, check_and_increment_summary
 
 router = APIRouter(prefix="/api", tags=["AI 总结"])
 
@@ -31,21 +31,23 @@ def _check_summary_permission(user: dict | None):
     未登录用户：不允许使用。
     免费用户：每日限制次数。
     VIP 用户：无限制。
-    返回 (allowed, remaining, message)
+    返回 (allowed, remaining, message, code, daily_limit)
     """
     if not user:
-        return False, 0, "请先登录后使用 AI 总结功能", "login_required"
+        return False, 0, "请先登录后使用 AI 总结功能", "login_required", 0
 
-    allowed, remaining = check_and_increment_summary(user["id"])
+    allowed, remaining, daily_limit, plan_tier = check_and_increment_summary(user["id"])
     if not allowed:
+        plan_name = PLAN_LABELS.get(plan_tier, "Free")
         return (
             False,
             0,
-            f"今日免费 AI 总结次数已用完（每日 {FREE_DAILY_SUMMARY_LIMIT} 次），升级 Pro 可无限使用",
+            f"今日 {plan_name} AI 总结次数已用完（每日 {daily_limit} 次），升级更高套餐可继续使用",
             "quota_exceeded",
+            daily_limit,
         )
 
-    return True, remaining, None, None
+    return True, remaining, None, None, daily_limit
 
 
 def _get_summarizer():
@@ -73,7 +75,7 @@ async def summarize_video(req: SummarizeRequest, user: dict | None = Depends(get
     AI 视频总结（SSE 流式）
     事件类型: subtitle / summary / mindmap / done / error / quota
     """
-    allowed, remaining, message, code = _check_summary_permission(user)
+    allowed, remaining, message, code, daily_limit = _check_summary_permission(user)
     if not allowed:
         yield ServerSentEvent(
             raw_data=json.dumps(
@@ -128,7 +130,7 @@ async def summarize_video(req: SummarizeRequest, user: dict | None = Depends(get
             event="mindmap",
         )
 
-        quota_info = {"remaining": remaining, "limit": FREE_DAILY_SUMMARY_LIMIT}
+        quota_info = {"remaining": remaining, "limit": daily_limit}
         yield ServerSentEvent(
             raw_data=json.dumps(quota_info, ensure_ascii=False),
             event="quota",

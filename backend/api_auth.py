@@ -12,6 +12,11 @@ from auth import (
     verify_password,
 )
 from database import create_user, get_user_by_email
+from database import (
+    PLAN_LABELS,
+    get_daily_summary_limit_for_plan,
+    get_effective_plan_tier,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -27,20 +32,26 @@ class LoginRequest(BaseModel):
 
 
 def _build_user_response(user: dict) -> dict:
-    is_vip = False
+    plan_tier = get_effective_plan_tier(user)
     vip_expire_at = None
     if user.get("is_vip") and user.get("vip_expire_at"):
         try:
             expire = datetime.fromisoformat(user["vip_expire_at"])
-            is_vip = expire > datetime.now(timezone.utc)
-            vip_expire_at = user["vip_expire_at"]
+            if expire.tzinfo is None:
+                expire = expire.replace(tzinfo=timezone.utc)
+            if expire > datetime.now(timezone.utc):
+                vip_expire_at = user["vip_expire_at"]
         except ValueError:
             pass
 
     return {
         "id": user["id"],
         "email": user["email"],
-        "is_vip": is_vip,
+        "is_vip": plan_tier == "pro",
+        "is_paid": plan_tier != "free",
+        "plan_tier": plan_tier,
+        "plan_name": PLAN_LABELS.get(plan_tier, "Free"),
+        "daily_summary_limit": get_daily_summary_limit_for_plan(plan_tier),
         "vip_expire_at": vip_expire_at,
     }
 

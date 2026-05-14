@@ -29,15 +29,38 @@ def _get_config(key: str, default: str = "") -> str:
 
 def _get_plans() -> dict:
     site_name = _get_config("SITE_NAME", "VideoBrief")
-    monthly_amount = int(_get_config("VIP_MONTHLY_PRICE_CENTS", "990"))
+    go_amount = int(_get_config("GO_MONTHLY_PRICE_CENTS", "390"))
+    plus_amount = int(_get_config("PLUS_MONTHLY_PRICE_CENTS", "690"))
+    pro_amount = int(_get_config("VIP_MONTHLY_PRICE_CENTS", "990"))
     currency = _get_config("VIP_CURRENCY", "cny")
+    pro_plan = {
+        "name": f"{site_name} Pro 月度会员",
+        "amount": pro_amount,
+        "currency": currency,
+    }
     return {
-        "monthly": {
-            "name": f"{site_name} Pro 月度会员",
-            "amount": monthly_amount,
+        "go": {
+            "name": f"{site_name} Go 月度会员",
+            "amount": go_amount,
             "currency": currency,
         },
+        "plus": {
+            "name": f"{site_name} Plus 月度会员",
+            "amount": plus_amount,
+            "currency": currency,
+        },
+        "pro": pro_plan,
+        "monthly": pro_plan,
     }
+
+
+def _get_stripe_price_id(plan_type: str) -> str:
+    plan = (plan_type or "monthly").strip().lower()
+    if plan in {"go", "go_monthly"}:
+        return _get_config("STRIPE_PRICE_ID_GO")
+    if plan in {"plus", "plus_monthly"}:
+        return _get_config("STRIPE_PRICE_ID_PLUS")
+    return _get_config("STRIPE_PRICE_ID_MONTHLY")
 
 
 def _get_payment_method_types() -> list[str]:
@@ -93,13 +116,13 @@ async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depen
 
 def _create_stripe_checkout(req: CreateCheckoutRequest, user: dict):
     secret_key = _get_config("STRIPE_SECRET_KEY")
-    price_id = _get_config("STRIPE_PRICE_ID_MONTHLY")
+    price_id = _get_stripe_price_id(req.plan_type)
     frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
 
     if not secret_key:
         raise HTTPException(status_code=500, detail="支付服务未配置，请设置 STRIPE_SECRET_KEY")
     if not price_id:
-        raise HTTPException(status_code=500, detail="套餐价格未配置，请设置 STRIPE_PRICE_ID_MONTHLY")
+        raise HTTPException(status_code=500, detail=f"套餐价格未配置，请设置 {req.plan_type} 对应的 Stripe price_id")
 
     plans = _get_plans()
     plan = plans.get(req.plan_type)
