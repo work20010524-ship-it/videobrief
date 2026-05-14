@@ -51,6 +51,9 @@ class VideoDownloader:
 
         if VideoDownloader._is_bilibili_url(url):
             opts["http_headers"]["Referer"] = url
+            bilibili_cookie = os.getenv("BILIBILI_COOKIE", "").strip()
+            if bilibili_cookie:
+                opts["http_headers"]["Cookie"] = bilibili_cookie
 
         proxy = os.getenv("YTDLP_PROXY", "").strip()
         cookiefile = os.getenv("YTDLP_COOKIEFILE", "").strip()
@@ -108,30 +111,55 @@ class VideoDownloader:
 
     @staticmethod
     def _parse_bvid(url: str) -> Optional[str]:
-        match = re.search(r"(BV[a-zA-Z0-9]+)", url)
+        match = re.search(r"(BV[a-zA-Z0-9]{10})", url)
         return match.group(1) if match else None
+
+    @staticmethod
+    def _parse_aid(url: str) -> Optional[str]:
+        match = re.search(r"(?:/video/av|[?&]aid=|[?&]avid=)(\d+)", url, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    def _bilibili_view_params(self, url: str) -> tuple[dict, str]:
+        bvid = self._parse_bvid(url)
+        if bvid:
+            return {"bvid": bvid}, bvid
+
+        aid = self._parse_aid(url)
+        if aid:
+            return {"aid": aid}, f"av{aid}"
+
+        raise ValueError("B 站链接未找到 BV 号或 av 号，无法使用公开 API 兜底解析")
+
+    @staticmethod
+    def _normalize_bilibili_api_message(message: str, identifier: str) -> str:
+        if message == "啥都木有":
+            return (
+                f"B 站公开接口返回“啥都木有”（{identifier}）。通常表示这个视频不存在、已删除/审核中、"
+                "需要登录或权限不可见，也可能是当前服务器出口 IP 被 B 站风控到无法拿公开视频信息。"
+                "请先用浏览器无痕窗口确认该链接能否直接打开；如果能打开，请配置 YTDLP_PROXY。"
+            )
+        return message or "B 站公开 API 兜底解析失败"
 
     def _parse_bilibili_fallback(self, url: str) -> dict:
         resolved_url = self._resolve_bilibili_url(url)
-        bvid = self._parse_bvid(resolved_url)
-        if not bvid:
-            raise ValueError("B 站链接未找到 BV 号，无法使用公开 API 兜底解析")
+        params, identifier = self._bilibili_view_params(resolved_url)
 
-        api_url = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+        api_url = "https://api.bilibili.com/x/web-interface/view"
         with httpx.Client(
-            headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+            headers=self._bilibili_headers(resolved_url),
             timeout=15,
             proxy=self._httpx_proxy(),
         ) as client:
-            response = client.get(api_url)
+            response = client.get(api_url, params=params)
             response.raise_for_status()
             payload = response.json()
 
         if payload.get("code") != 0:
-            raise ValueError(payload.get("message") or "B 站公开 API 兜底解析失败")
+            raise ValueError(self._normalize_bilibili_api_message(payload.get("message", ""), identifier))
 
         data = payload.get("data") or {}
         cid = data.get("cid")
+        bvid = data.get("bvid") or params.get("bvid") or identifier
         formats = self._get_bilibili_fallback_formats(bvid, cid)
         owner = data.get("owner") or {}
         stat = data.get("stat") or {}

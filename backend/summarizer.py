@@ -48,6 +48,9 @@ def _build_ydl_opts(url: str = "", **extra) -> dict:
     }
     if _is_bilibili_url(url):
         opts["http_headers"]["Referer"] = url
+        bilibili_cookie = os.getenv("BILIBILI_COOKIE", "").strip()
+        if bilibili_cookie:
+            opts["http_headers"]["Cookie"] = bilibili_cookie
 
     proxy = os.getenv("YTDLP_PROXY", "").strip()
     cookiefile = os.getenv("YTDLP_COOKIEFILE", "").strip()
@@ -316,15 +319,20 @@ class SubtitleExtractor:
         try:
             resolved_url = self._resolve_bilibili_url(url)
             bvid = self._parse_bvid(resolved_url)
-            if not bvid:
+            aid = self._parse_aid(resolved_url)
+            if bvid:
+                params = {"bvid": bvid}
+            elif aid:
+                params = {"aid": aid}
+            else:
                 return {}
 
             with httpx.Client(
-                headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+                headers=self._bilibili_headers(resolved_url),
                 timeout=15,
                 proxy=self._httpx_proxy(),
             ) as client:
-                response = client.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}")
+                response = client.get("https://api.bilibili.com/x/web-interface/view", params=params)
                 response.raise_for_status()
                 payload = response.json()
 
@@ -349,29 +357,31 @@ class SubtitleExtractor:
         empty = self._empty_result()
         try:
             bvid = self._parse_bvid(url)
-            if not bvid:
+            aid_from_url = self._parse_aid(url)
+            if not bvid and not aid_from_url:
                 return empty
 
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": f"https://www.bilibili.com/video/{bvid}",
-            }
+            headers = self._bilibili_headers(url)
+            params = {"bvid": bvid} if bvid else {"aid": aid_from_url}
 
-            view_resp = httpx.get(
-                f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
-                headers=headers, timeout=15,
-            )
-            view_data = view_resp.json().get("data", {})
-            cid = view_data.get("cid")
-            aid = view_data.get("aid")
-            if not cid or not aid:
-                return empty
+            with httpx.Client(headers=headers, timeout=15, proxy=self._httpx_proxy()) as client:
+                view_resp = client.get(
+                    "https://api.bilibili.com/x/web-interface/view",
+                    params=params,
+                )
+                view_resp.raise_for_status()
+                view_data = view_resp.json().get("data", {})
+                cid = view_data.get("cid")
+                aid = view_data.get("aid")
+                if not cid or not aid:
+                    return empty
 
-            dm_resp = httpx.get(
-                f"https://api.bilibili.com/x/v2/dm/view?aid={aid}&oid={cid}&type=1",
-                headers=headers, timeout=15,
-            )
-            dm_data = dm_resp.json().get("data", {})
+                dm_resp = client.get(
+                    "https://api.bilibili.com/x/v2/dm/view",
+                    params={"aid": aid, "oid": cid, "type": 1},
+                )
+                dm_resp.raise_for_status()
+                dm_data = dm_resp.json().get("data", {})
             subtitle_list = dm_data.get("subtitle", {}).get("subtitles", [])
 
             if not subtitle_list:
@@ -395,8 +405,10 @@ class SubtitleExtractor:
             if not sub_url:
                 return empty
 
-            sub_resp = httpx.get(sub_url, headers=headers, timeout=15)
-            sub_json = sub_resp.json()
+            with httpx.Client(headers=headers, timeout=15, proxy=self._httpx_proxy()) as client:
+                sub_resp = client.get(sub_url)
+                sub_resp.raise_for_status()
+                sub_json = sub_resp.json()
             body = sub_json.get("body", [])
 
             segments = []
@@ -420,7 +432,12 @@ class SubtitleExtractor:
 
     @staticmethod
     def _parse_bvid(url: str) -> Optional[str]:
-        m = re.search(r"(BV[a-zA-Z0-9]+)", url)
+        m = re.search(r"(BV[a-zA-Z0-9]{10})", url)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _parse_aid(url: str) -> Optional[str]:
+        m = re.search(r"(?:/video/av|[?&]aid=|[?&]avid=)(\d+)", url, re.IGNORECASE)
         return m.group(1) if m else None
 
     def _get_video_info(self, url: str) -> dict:
