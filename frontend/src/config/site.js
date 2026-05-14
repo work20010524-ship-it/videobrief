@@ -36,8 +36,8 @@ export const siteConfig = {
     placeholder: 'https://www.youtube.com/watch?v=... 粘贴视频链接',
     examples: [
       { label: 'YouTube', url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw' },
-      { label: 'Bilibili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7/' },
-      { label: '抖音', url: 'https://www.douyin.com/video/7635097254491251362' },
+      { label: 'Bilibili', url: 'https://www.bilibili.com/video/BV1fs5b6UE4z/?spm_id_from=333.1007.tianma.2-1-3.click&vd_source=8ef95747e35324faccc116acab29a6a9' },
+      { label: '抖音', url: 'https://www.douyin.com/jingxuan?modal_id=7621485780740951334' },
     ],
   },
   features: [
