@@ -24,6 +24,10 @@ def _is_bilibili_url(url: str) -> bool:
     return "bilibili.com" in url or "b23.tv" in url
 
 
+def _is_douyin_url(url: str) -> bool:
+    return "douyin.com" in url or "iesdouyin.com" in url
+
+
 def _get_first_env(*keys: str, default: str = "") -> str:
     for key in keys:
         value = os.getenv(key, "").strip()
@@ -175,6 +179,10 @@ class SubtitleExtractor:
             if result["has_subtitle"]:
                 return result
 
+        source_url = url
+        if _is_douyin_url(url):
+            url = self._normalize_douyin_url(url)
+
         try:
             info = self._get_video_info(url)
         except Exception as error:
@@ -184,6 +192,14 @@ class SubtitleExtractor:
                     return self._metadata_summary_fallback(
                         public_info,
                         f"B 站字幕/音频接口被服务器出口拦截，已改用公开视频信息做有限总结。原始错误：{error}",
+                    )
+            if _is_douyin_url(source_url):
+                public_info = self._get_douyin_public_info(source_url)
+                if public_info:
+                    return self._transcribe_audio_fallback(
+                        source_url,
+                        public_info,
+                        f"抖音链接不是标准视频页，或 yt-dlp 暂不支持该入口，已改用抖音专用解析器尝试语音转写。原始错误：{error}",
                     )
             return self._empty_result(f"视频信息解析失败，无法继续提取字幕或音频：{error}")
 
@@ -207,7 +223,7 @@ class SubtitleExtractor:
                     segments=segments,
                 )
 
-        return self._transcribe_audio_fallback(url, info, subtitle_error_message)
+        return self._transcribe_audio_fallback(source_url, info, subtitle_error_message)
 
     @staticmethod
     def _empty_result(detail_message: str = "") -> dict:
@@ -287,6 +303,28 @@ class SubtitleExtractor:
 
     def _httpx_proxy(self) -> Optional[str]:
         return os.getenv("YTDLP_PROXY", "").strip() or None
+
+    def _normalize_douyin_url(self, url: str) -> str:
+        try:
+            from douyin import DouyinParser
+            return DouyinParser().normalize_url(url)
+        except Exception:
+            return url
+
+    def _get_douyin_public_info(self, url: str) -> dict:
+        try:
+            from douyin import DouyinParser
+            data = DouyinParser().parse(url)
+            return {
+                "title": data.get("title", ""),
+                "description": data.get("description", ""),
+                "uploader": data.get("uploader", ""),
+                "platform": data.get("platform", "抖音"),
+                "duration": data.get("duration") or 0,
+                "language": "zh",
+            }
+        except Exception:
+            return {}
 
     def _bilibili_headers(self, referer: str = "https://www.bilibili.com") -> dict:
         headers = {
@@ -613,6 +651,9 @@ class SubtitleExtractor:
         return self._transcription_client
 
     def _download_audio_track(self, url: str, tmp_dir: str) -> str:
+        if _is_douyin_url(url):
+            return self._download_douyin_media(url, tmp_dir)
+
         output_template = os.path.join(tmp_dir, "audio.%(ext)s")
         ydl_opts = _build_ydl_opts(
             url,
@@ -641,6 +682,19 @@ class SubtitleExtractor:
                 return candidate
 
         raise ValueError("下载音轨失败，无法执行语音转写")
+
+    @staticmethod
+    def _download_douyin_media(url: str, tmp_dir: str) -> str:
+        try:
+            from douyin import DouyinParser
+            result = DouyinParser(download_dir=tmp_dir).download(url, mode="video")
+        except Exception as error:
+            raise ValueError(f"抖音视频下载失败，无法执行语音转写：{error}")
+
+        filepath = result.get("filepath", "")
+        if filepath and os.path.exists(filepath):
+            return filepath
+        raise ValueError("抖音视频下载完成后未找到本地文件，无法执行语音转写")
 
     def _prepare_audio_files_for_transcription(
         self,

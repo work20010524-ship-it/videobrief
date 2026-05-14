@@ -79,6 +79,13 @@ class DouyinParser:
         item_info = self._fetch_item_info(video_id, resolved_url)
         return self._build_result(item_info, video_id)
 
+    def normalize_url(self, url: str) -> str:
+        """把精选页弹窗、短链等统一成标准视频详情页，方便其他解析器复用"""
+        share_url = self._extract_url(url)
+        resolved_url = self._resolve_redirect(share_url)
+        video_id = self._extract_video_id(resolved_url)
+        return f"https://www.douyin.com/video/{video_id}"
+
     def download(self, url: str, mode: str = "video") -> dict:
         """下载抖音视频，返回文件路径"""
         share_url = self._extract_url(url)
