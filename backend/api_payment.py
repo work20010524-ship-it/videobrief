@@ -1,11 +1,16 @@
 import os
 import uuid
 import hashlib
+import base64
+import json
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode, urlparse
 
 import stripe
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
@@ -107,6 +112,8 @@ def _generate_order_no(user_id: int) -> str:
 @router.post("/create-checkout")
 async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depends(get_current_user)):
     provider = _get_config("PAYMENT_PROVIDER", "stripe").strip().lower()
+    if provider == "alipay":
+        return _create_alipay_checkout(req, user)
     if provider == "epay":
         return _create_epay_checkout(req, user)
     if provider and provider != "stripe":
@@ -244,8 +251,185 @@ def _create_epay_checkout(req: CreateCheckoutRequest, user: dict):
     }
 
 
+def _create_alipay_checkout(req: CreateCheckoutRequest, user: dict):
+    app_id = _get_config("ALIPAY_APP_ID").strip()
+    private_key = _get_config("ALIPAY_PRIVATE_KEY").strip()
+    gateway_url = _get_config("ALIPAY_GATEWAY_URL", "https://openapi.alipay.com/gateway.do").strip()
+    frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
+    public_base_url = _normalize_frontend_url(_get_config("PUBLIC_BASE_URL", frontend_url))
+
+    if not app_id or not private_key:
+        raise HTTPException(status_code=500, detail="支付宝未配置，请设置 ALIPAY_APP_ID 和 ALIPAY_PRIVATE_KEY")
+    if (req.payment_type or "alipay").strip().lower() != "alipay":
+        raise HTTPException(status_code=400, detail="当前官方支付宝通道只支持支付宝；微信支付需要接入微信商户或聚合支付")
+
+    plans = _get_plans()
+    plan = plans.get(req.plan_type)
+    if not plan:
+        raise HTTPException(status_code=400, detail="无效的套餐类型")
+    if plan["currency"].lower() != "cny":
+        raise HTTPException(status_code=400, detail="支付宝官方通道只支持人民币 CNY")
+
+    order_no = _generate_order_no(user["id"])
+    create_order(
+        user_id=user["id"],
+        order_no=order_no,
+        amount=plan["amount"],
+        currency=plan["currency"],
+        plan_type=req.plan_type,
+    )
+    update_order_stripe_session(order_no, order_no)
+
+    biz_content = {
+        "out_trade_no": order_no,
+        "total_amount": _format_cny_amount(plan["amount"]),
+        "subject": plan["name"][:128],
+        "product_code": _get_config("ALIPAY_PRODUCT_CODE", "FAST_INSTANT_TRADE_PAY") or "FAST_INSTANT_TRADE_PAY",
+        "timeout_express": _get_config("ALIPAY_TIMEOUT_EXPRESS", "30m") or "30m",
+    }
+    params = {
+        "app_id": app_id,
+        "method": _get_config("ALIPAY_METHOD", "alipay.trade.page.pay") or "alipay.trade.page.pay",
+        "charset": "utf-8",
+        "sign_type": "RSA2",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "version": "1.0",
+        "notify_url": f"{public_base_url}/api/payment/alipay/notify",
+        "return_url": f"{public_base_url}/api/payment/alipay/return",
+        "biz_content": json.dumps(biz_content, ensure_ascii=False, separators=(",", ":")),
+    }
+    params["sign"] = _alipay_sign(params, private_key)
+
+    checkout_url = f"{gateway_url}?{urlencode(params)}"
+    return {
+        "success": True,
+        "data": {
+            "checkout_url": checkout_url,
+            "order_no": order_no,
+            "session_id": order_no,
+            "provider": "alipay",
+            "payment_type": "alipay",
+        },
+    }
+
+
 def _format_cny_amount(amount_cents: int) -> str:
     return f"{Decimal(amount_cents) / Decimal(100):.2f}"
+
+
+def _normalize_pem(raw_key: str, label: str) -> str:
+    key = (raw_key or "").strip().strip('"').strip("'").replace("\\n", "\n")
+    if not key:
+        return ""
+    if "BEGIN" in key:
+        return key if key.endswith("\n") else f"{key}\n"
+
+    compact = "".join(key.split())
+    lines = "\n".join(compact[i : i + 64] for i in range(0, len(compact), 64))
+    return f"-----BEGIN {label}-----\n{lines}\n-----END {label}-----\n"
+
+
+def _alipay_sign_content(params: dict) -> str:
+    filtered = {
+        k: str(v)
+        for k, v in params.items()
+        if k not in {"sign", "sign_type"} and v is not None and str(v) != ""
+    }
+    return "&".join(f"{k}={filtered[k]}" for k in sorted(filtered))
+
+
+def _alipay_sign(params: dict, private_key_text: str) -> str:
+    try:
+        private_key = serialization.load_pem_private_key(
+            _normalize_pem(private_key_text, "PRIVATE KEY").encode("utf-8"),
+            password=None,
+        )
+        signature = private_key.sign(
+            _alipay_sign_content(params).encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return base64.b64encode(signature).decode("utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"支付宝私钥无效或签名失败：{exc}")
+
+
+def _verify_alipay_params(params: dict) -> bool:
+    public_key_text = (
+        _get_config("ALIPAY_PUBLIC_KEY").strip()
+        or _get_config("ALIPAY_ALIPAY_PUBLIC_KEY").strip()
+    )
+    sign = params.get("sign")
+    if not public_key_text or not sign:
+        return False
+
+    try:
+        public_key = serialization.load_pem_public_key(
+            _normalize_pem(public_key_text, "PUBLIC KEY").encode("utf-8")
+        )
+        signature = base64.b64decode(str(sign).replace(" ", "+"))
+        public_key.verify(
+            signature,
+            _alipay_sign_content(params).encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return True
+    except (InvalidSignature, ValueError):
+        return False
+
+
+async def _read_alipay_params(request: Request) -> dict:
+    params = dict(request.query_params)
+    content_type = request.headers.get("content-type", "")
+    if request.method == "POST" and "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        params.update({k: str(v) for k, v in form.items()})
+    return params
+
+
+def _complete_alipay_order(params: dict, require_success_status: bool = True) -> bool:
+    if not _verify_alipay_params(params):
+        return False
+
+    if require_success_status and params.get("trade_status") not in {"TRADE_SUCCESS", "TRADE_FINISHED"}:
+        return False
+
+    order_no = params.get("out_trade_no", "")
+    order = get_order_by_no(order_no)
+    if not order:
+        return False
+
+    paid_amount = params.get("total_amount") or params.get("buyer_pay_amount") or params.get("receipt_amount")
+    try:
+        paid_cents = int((Decimal(str(paid_amount or "0")) * Decimal(100)).quantize(Decimal("1")))
+    except (InvalidOperation, ValueError):
+        return False
+
+    if paid_cents != int(order["amount"]):
+        return False
+
+    complete_order(order_no, params.get("trade_no", ""))
+    return True
+
+
+@router.api_route("/alipay/notify", methods=["GET", "POST"])
+async def alipay_notify(request: Request):
+    params = await _read_alipay_params(request)
+    if _complete_alipay_order(params):
+        return PlainTextResponse("success")
+    return PlainTextResponse("fail", status_code=400)
+
+
+@router.api_route("/alipay/return", methods=["GET", "POST"])
+async def alipay_return(request: Request):
+    params = await _read_alipay_params(request)
+    frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
+    order_no = params.get("out_trade_no", "")
+    completed = _complete_alipay_order(params, require_success_status=False)
+    verified = completed or _verify_alipay_params(params)
+    payment_status = "success" if verified else "cancel"
+    return RedirectResponse(f"{frontend_url}?payment={payment_status}&order_no={order_no}", status_code=302)
 
 
 def _map_epay_type(payment_type: str) -> str:
