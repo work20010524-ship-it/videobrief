@@ -35,9 +35,9 @@ export const siteConfig = {
       '输入链接即可解析标题、封面、格式与字幕，支持下载、内容总结、思维导图和问答，适合学习整理、内容研究与素材归档。',
     placeholder: 'https://www.youtube.com/watch?v=... 粘贴视频链接',
     examples: [
-      { label: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
-      { label: 'Bilibili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7' },
-      { label: '抖音', url: 'https://v.douyin.com/i5rK3TqW/' },
+      { label: 'YouTube', url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw' },
+      { label: 'Bilibili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7/' },
+      { label: '抖音', url: 'https://www.douyin.com/video/7635097254491251362' },
     ],
   },
   features: [
