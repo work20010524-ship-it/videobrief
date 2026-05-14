@@ -330,10 +330,11 @@ def _normalize_pem(raw_key: str, label: str) -> str:
 
 
 def _alipay_sign_content(params: dict) -> str:
+    # Alipay gateway includes sign_type in the RSA2 verification string.
     filtered = {
         k: str(v)
         for k, v in params.items()
-        if k not in {"sign", "sign_type"} and v is not None and str(v) != ""
+        if k != "sign" and v is not None and str(v) != ""
     }
     return "&".join(f"{k}={filtered[k]}" for k in sorted(filtered))
 
