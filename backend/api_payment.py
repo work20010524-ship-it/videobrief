@@ -1,11 +1,13 @@
 import os
 import uuid
+import hashlib
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode, urlparse
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 
 from auth import get_current_user
@@ -14,7 +16,7 @@ from database import (
     update_order_stripe_session,
     complete_order,
     get_user_orders,
-    get_user_by_id,
+    get_order_by_no,
 )
 
 router = APIRouter(prefix="/api/payment", tags=["payment"])
@@ -70,6 +72,7 @@ def _normalize_frontend_url(raw_url: str) -> str:
 
 class CreateCheckoutRequest(BaseModel):
     plan_type: str = "monthly"
+    payment_type: str = ""
 
 
 def _generate_order_no(user_id: int) -> str:
@@ -80,6 +83,15 @@ def _generate_order_no(user_id: int) -> str:
 
 @router.post("/create-checkout")
 async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depends(get_current_user)):
+    provider = _get_config("PAYMENT_PROVIDER", "stripe").strip().lower()
+    if provider == "epay":
+        return _create_epay_checkout(req, user)
+    if provider and provider != "stripe":
+        raise HTTPException(status_code=500, detail=f"不支持的支付服务：{provider}")
+    return _create_stripe_checkout(req, user)
+
+
+def _create_stripe_checkout(req: CreateCheckoutRequest, user: dict):
     secret_key = _get_config("STRIPE_SECRET_KEY")
     price_id = _get_config("STRIPE_PRICE_ID_MONTHLY")
     frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
@@ -148,6 +160,142 @@ async def create_checkout_session(req: CreateCheckoutRequest, user: dict = Depen
 
     except stripe.StripeError as e:
         raise HTTPException(status_code=400, detail=f"创建支付会话失败: {str(e)}")
+
+
+def _create_epay_checkout(req: CreateCheckoutRequest, user: dict):
+    api_url = _get_config("EPAY_API_URL").strip().rstrip("/")
+    pid = _get_config("EPAY_PID").strip()
+    key = _get_config("EPAY_KEY").strip()
+    frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
+    public_base_url = _normalize_frontend_url(_get_config("PUBLIC_BASE_URL", frontend_url))
+
+    if not api_url:
+        raise HTTPException(status_code=500, detail="易支付未配置，请设置 EPAY_API_URL")
+    if not pid or not key:
+        raise HTTPException(status_code=500, detail="易支付未配置，请设置 EPAY_PID 和 EPAY_KEY")
+
+    payment_type = (req.payment_type or _get_config("EPAY_DEFAULT_TYPE", "alipay")).strip().lower()
+    allowed_types = {"alipay", "wxpay"}
+    if payment_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="请选择支付宝或微信支付")
+    epay_type = _map_epay_type(payment_type)
+
+    plans = _get_plans()
+    plan = plans.get(req.plan_type)
+    if not plan:
+        raise HTTPException(status_code=400, detail="无效的套餐类型")
+
+    order_no = _generate_order_no(user["id"])
+    create_order(
+        user_id=user["id"],
+        order_no=order_no,
+        amount=plan["amount"],
+        currency=plan["currency"],
+        plan_type=req.plan_type,
+    )
+    update_order_stripe_session(order_no, order_no)
+
+    params = {
+        "pid": pid,
+        "type": epay_type,
+        "out_trade_no": order_no,
+        "notify_url": f"{public_base_url}/api/payment/epay/notify",
+        "return_url": f"{public_base_url}/api/payment/epay/return",
+        "name": plan["name"],
+        "money": _format_cny_amount(plan["amount"]),
+        "sitename": _get_config("SITE_NAME", "VideoBrief"),
+    }
+    params["sign"] = _epay_sign(params, key)
+    params["sign_type"] = "MD5"
+
+    checkout_url = f"{api_url}/submit.php?{urlencode(params)}"
+    return {
+        "success": True,
+        "data": {
+            "checkout_url": checkout_url,
+            "order_no": order_no,
+            "session_id": order_no,
+            "provider": "epay",
+            "payment_type": payment_type,
+        },
+    }
+
+
+def _format_cny_amount(amount_cents: int) -> str:
+    return f"{Decimal(amount_cents) / Decimal(100):.2f}"
+
+
+def _map_epay_type(payment_type: str) -> str:
+    if payment_type == "wxpay":
+        return _get_config("EPAY_WXPAY_TYPE", "wxpay").strip() or "wxpay"
+    return _get_config("EPAY_ALIPAY_TYPE", "alipay").strip() or "alipay"
+
+
+def _epay_sign(params: dict, key: str) -> str:
+    filtered = {
+        k: str(v)
+        for k, v in params.items()
+        if k not in {"sign", "sign_type"} and v is not None and str(v) != ""
+    }
+    sign_text = "&".join(f"{k}={filtered[k]}" for k in sorted(filtered)) + key
+    return hashlib.md5(sign_text.encode("utf-8")).hexdigest()
+
+
+def _verify_epay_params(params: dict) -> bool:
+    key = _get_config("EPAY_KEY").strip()
+    if not key or not params.get("sign"):
+        return False
+    return _epay_sign(params, key) == str(params.get("sign", "")).lower()
+
+
+async def _read_epay_params(request: Request) -> dict:
+    params = dict(request.query_params)
+    content_type = request.headers.get("content-type", "")
+    if request.method == "POST" and "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        params.update({k: str(v) for k, v in form.items()})
+    return params
+
+
+def _complete_epay_order(params: dict) -> bool:
+    if not _verify_epay_params(params):
+        return False
+
+    if params.get("trade_status") != "TRADE_SUCCESS":
+        return False
+
+    order_no = params.get("out_trade_no", "")
+    order = get_order_by_no(order_no)
+    if not order:
+        return False
+
+    try:
+        paid_cents = int((Decimal(str(params.get("money", "0"))) * Decimal(100)).quantize(Decimal("1")))
+    except (InvalidOperation, ValueError):
+        return False
+
+    if paid_cents != int(order["amount"]):
+        return False
+
+    complete_order(order_no, params.get("trade_no", ""))
+    return True
+
+
+@router.api_route("/epay/notify", methods=["GET", "POST"])
+async def epay_notify(request: Request):
+    params = await _read_epay_params(request)
+    if _complete_epay_order(params):
+        return PlainTextResponse("success")
+    return PlainTextResponse("fail", status_code=400)
+
+
+@router.api_route("/epay/return", methods=["GET", "POST"])
+async def epay_return(request: Request):
+    params = await _read_epay_params(request)
+    frontend_url = _normalize_frontend_url(_get_config("FRONTEND_URL", "http://localhost:5173"))
+    order_no = params.get("out_trade_no", "")
+    payment_status = "success" if _complete_epay_order(params) else "cancel"
+    return RedirectResponse(f"{frontend_url}?payment={payment_status}&order_no={order_no}", status_code=302)
 
 
 @router.post("/webhook")

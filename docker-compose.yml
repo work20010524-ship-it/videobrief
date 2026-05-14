@@ -26,5 +26,19 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: videobrief-caddy
+    restart: unless-stopped
+    depends_on:
+      - frontend
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./storage/caddy-data:/data
+      - ./storage/caddy-config:/config

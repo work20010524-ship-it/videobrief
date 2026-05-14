@@ -6,10 +6,10 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-export async function createCheckoutSession(planType = 'monthly') {
+export async function createCheckoutSession(planType = 'monthly', paymentType = '') {
   const res = await axios.post(
     '/api/payment/create-checkout',
-    { plan_type: planType },
+    { plan_type: planType, payment_type: paymentType },
     { headers: authHeaders() }
   )
   return res.data.data

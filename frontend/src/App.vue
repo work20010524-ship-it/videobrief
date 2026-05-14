@@ -71,6 +71,54 @@
       </div>
     </Teleport>
 
+    <!-- 支付方式选择 -->
+    <Teleport to="body">
+      <div
+        v-if="paymentModalVisible"
+        class="fixed inset-0 z-[210] flex items-center justify-center bg-black/40 px-4"
+        @click.self="paymentModalVisible = false"
+      >
+        <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl border border-border-light">
+          <div class="flex items-start justify-between gap-4 mb-5">
+            <div>
+              <h3 class="text-lg font-semibold text-text-primary">选择支付方式</h3>
+              <p class="mt-1 text-sm text-text-secondary">开通 VideoBrief Pro，支付成功后自动增加 30 天会员。</p>
+            </div>
+            <button
+              @click="paymentModalVisible = false"
+              class="flex h-8 w-8 items-center justify-center rounded-full text-text-muted hover:bg-gray-100 hover:text-text-primary transition-colors cursor-pointer"
+              aria-label="关闭"
+            >
+              ×
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <button
+              @click="startCheckout('alipay')"
+              class="flex w-full items-center justify-between rounded-xl border border-border px-4 py-3 text-left transition-colors hover:border-primary hover:bg-primary-light cursor-pointer"
+            >
+              <span>
+                <span class="block text-sm font-semibold text-text-primary">支付宝</span>
+                <span class="block text-xs text-text-secondary mt-0.5">跳转到支付宝完成付款</span>
+              </span>
+              <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1677ff] text-white text-sm font-bold">支</span>
+            </button>
+            <button
+              @click="startCheckout('wxpay')"
+              class="flex w-full items-center justify-between rounded-xl border border-border px-4 py-3 text-left transition-colors hover:border-green-500 hover:bg-green-50 cursor-pointer"
+            >
+              <span>
+                <span class="block text-sm font-semibold text-text-primary">微信支付</span>
+                <span class="block text-xs text-text-secondary mt-0.5">使用微信扫码或跳转付款</span>
+              </span>
+              <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-[#07c160] text-white text-sm font-bold">微</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <AuthModal
       :visible="authModalVisible"
       :initialMode="authModalMode"
@@ -152,15 +200,27 @@ async function restoreUser() {
 }
 
 // ===== VIP 购买 =====
+const paymentModalVisible = ref(false)
+
 async function handleOpenVip() {
   if (!isLoggedIn()) {
     showAuthModal('login')
     return
   }
+  paymentModalVisible.value = true
+}
+
+async function startCheckout(paymentType) {
+  if (!isLoggedIn()) {
+    paymentModalVisible.value = false
+    showAuthModal('login')
+    return
+  }
   try {
-    const { checkout_url } = await createCheckoutSession('monthly')
+    const { checkout_url } = await createCheckoutSession('monthly', paymentType)
     window.location.href = checkout_url
   } catch (err) {
+    paymentModalVisible.value = false
     const msg = err.response?.data?.detail || err.message || '创建支付失败'
     alert(typeof msg === 'string' ? msg : JSON.stringify(msg))
   }

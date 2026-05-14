@@ -1,0 +1,4 @@
+video.kateai.cn {
+    encode gzip zstd
+    reverse_proxy frontend:80
+}
