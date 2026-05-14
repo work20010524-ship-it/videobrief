@@ -71,7 +71,7 @@
       </div>
     </Teleport>
 
-    <!-- 支付方式选择 -->
+    <!-- 支付确认 -->
     <Teleport to="body">
       <div
         v-if="paymentModalVisible"
@@ -81,7 +81,7 @@
         <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl border border-border-light">
           <div class="flex items-start justify-between gap-4 mb-5">
             <div>
-              <h3 class="text-lg font-semibold text-text-primary">选择支付方式</h3>
+              <h3 class="text-lg font-semibold text-text-primary">确认支付宝支付</h3>
               <p class="mt-1 text-sm text-text-secondary">开通 VideoBrief {{ selectedPlanName }}，支付成功后自动增加 30 天会员。</p>
             </div>
             <button
@@ -96,23 +96,13 @@
           <div class="space-y-3">
             <button
               @click="startCheckout('alipay')"
-              class="flex w-full items-center justify-between rounded-xl border border-border px-4 py-3 text-left transition-colors hover:border-primary hover:bg-primary-light cursor-pointer"
+              class="flex w-full items-center justify-between rounded-xl border border-primary bg-primary-light px-4 py-3 text-left transition-colors hover:border-primary-hover cursor-pointer"
             >
               <span>
                 <span class="block text-sm font-semibold text-text-primary">支付宝</span>
                 <span class="block text-xs text-text-secondary mt-0.5">跳转到支付宝完成付款</span>
               </span>
               <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1677ff] text-white text-sm font-bold">支</span>
-            </button>
-            <button
-              @click="startCheckout('wxpay')"
-              class="flex w-full items-center justify-between rounded-xl border border-border px-4 py-3 text-left transition-colors hover:border-green-500 hover:bg-green-50 cursor-pointer"
-            >
-              <span>
-                <span class="block text-sm font-semibold text-text-primary">微信支付</span>
-                <span class="block text-xs text-text-secondary mt-0.5">使用微信扫码或跳转付款</span>
-              </span>
-              <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-[#07c160] text-white text-sm font-bold">微</span>
             </button>
           </div>
         </div>
