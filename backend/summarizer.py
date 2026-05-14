@@ -9,7 +9,15 @@ from typing import Optional
 
 import httpx
 import yt_dlp
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    OpenAI,
+    RateLimitError,
+)
 
 
 def _is_bilibili_url(url: str) -> bool:
@@ -87,7 +95,26 @@ def _build_openai_audio_client_kwargs() -> dict:
     base_url = _get_first_env("OPENAI_BASE_URL")
     if base_url:
         kwargs["base_url"] = base_url
+    kwargs["timeout"] = _get_int_env("OPENAI_TIMEOUT_SECONDS", 120)
     return kwargs
+
+
+def _friendly_openai_error(error: Exception, action: str = "AI 服务") -> Exception:
+    endpoint = _get_first_env("OPENAI_BASE_URL", "LLM_BASE_URL", default="https://api.openai.com")
+    if isinstance(error, (APIConnectionError, APITimeoutError)):
+        return ValueError(
+            f"{action}连接失败：服务器无法连接 OpenAI 接口（{endpoint}）。请检查服务器网络、"
+            "OPENAI_BASE_URL 是否正确，以及是否需要给服务器配置出站代理。"
+        )
+    if isinstance(error, AuthenticationError):
+        return ValueError(f"{action}鉴权失败：OPENAI_API_KEY 无效、已撤销，或没有对应项目权限。")
+    if isinstance(error, RateLimitError):
+        return ValueError(f"{action}额度不足或限流：请检查 OpenAI 账户余额、用量限制和模型额度。")
+    if isinstance(error, BadRequestError):
+        return ValueError(f"{action}请求参数不被模型接受：{error}")
+    if isinstance(error, APIStatusError):
+        return ValueError(f"{action}返回异常（HTTP {error.status_code}）：{error}")
+    return error
 
 
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
@@ -122,6 +149,10 @@ class SubtitleExtractor:
             "OPENAI_TRANSCRIPTION_MAX_DURATION_SECONDS",
             DEFAULT_TRANSCRIPTION_MAX_DURATION_SECONDS,
         )
+        self.enable_metadata_fallback = _get_bool_env(
+            "ENABLE_METADATA_SUMMARY_FALLBACK",
+            default=True,
+        )
         self._transcription_client: Optional[OpenAI] = None
 
     def extract(self, url: str) -> dict:
@@ -141,7 +172,17 @@ class SubtitleExtractor:
             if result["has_subtitle"]:
                 return result
 
-        info = self._get_video_info(url)
+        try:
+            info = self._get_video_info(url)
+        except Exception as error:
+            if _is_bilibili_url(url):
+                public_info = self._get_bilibili_public_info(url)
+                if public_info:
+                    return self._metadata_summary_fallback(
+                        public_info,
+                        f"B 站字幕/音频接口被服务器出口拦截，已改用公开视频信息做有限总结。原始错误：{error}",
+                    )
+            return self._empty_result(f"视频信息解析失败，无法继续提取字幕或音频：{error}")
 
         manual_subs = info.get("subtitles") or {}
         auto_subs = info.get("automatic_captions") or {}
@@ -193,6 +234,115 @@ class SubtitleExtractor:
             "full_text": full_text,
             "detail_message": detail_message,
         }
+
+    def _metadata_summary_fallback(self, info: dict, detail_message: str) -> dict:
+        if not self.enable_metadata_fallback:
+            return self._empty_result(detail_message)
+
+        title = str(info.get("title") or "").strip()
+        description = str(info.get("description") or "").strip()
+        uploader = str(info.get("uploader") or "").strip()
+        platform = str(info.get("platform") or info.get("extractor_key") or "").strip()
+        duration = info.get("duration") or 0
+
+        lines = [
+            "注意：这里不是完整视频字幕或音频转写，而是根据公开视频标题、简介和基础信息生成的有限上下文。",
+        ]
+        if title:
+            lines.append(f"标题：{title}")
+        if uploader:
+            lines.append(f"作者：{uploader}")
+        if platform:
+            lines.append(f"平台：{platform}")
+        if duration:
+            lines.append(f"时长：{self._format_duration_for_text(duration)}")
+        if description:
+            lines.append(f"简介：{description[:3000]}")
+
+        if len(lines) <= 1:
+            return self._empty_result(detail_message)
+
+        text = "\n".join(lines)
+        return self._build_subtitle_result(
+            language=str(info.get("language") or "auto"),
+            subtitle_type="metadata",
+            segments=[{"start": 0, "end": float(duration or 1), "text": text}],
+            detail_message=detail_message,
+        )
+
+    @staticmethod
+    def _format_duration_for_text(duration) -> str:
+        try:
+            seconds = int(float(duration))
+        except (TypeError, ValueError):
+            return ""
+        minutes, sec = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours}小时{minutes}分{sec}秒"
+        return f"{minutes}分{sec}秒"
+
+    def _httpx_proxy(self) -> Optional[str]:
+        return os.getenv("YTDLP_PROXY", "").strip() or None
+
+    def _bilibili_headers(self, referer: str = "https://www.bilibili.com") -> dict:
+        headers = {
+            "User-Agent": os.getenv(
+                "YTDLP_USER_AGENT",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+            ),
+            "Referer": referer,
+        }
+        cookie = os.getenv("BILIBILI_COOKIE", "").strip()
+        if cookie:
+            headers["Cookie"] = cookie
+        return headers
+
+    def _resolve_bilibili_url(self, url: str) -> str:
+        if "b23.tv" not in url:
+            return url
+        with httpx.Client(
+            headers=self._bilibili_headers(url),
+            follow_redirects=True,
+            timeout=15,
+            proxy=self._httpx_proxy(),
+        ) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            return str(response.url)
+
+    def _get_bilibili_public_info(self, url: str) -> dict:
+        try:
+            resolved_url = self._resolve_bilibili_url(url)
+            bvid = self._parse_bvid(resolved_url)
+            if not bvid:
+                return {}
+
+            with httpx.Client(
+                headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+                timeout=15,
+                proxy=self._httpx_proxy(),
+            ) as client:
+                response = client.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}")
+                response.raise_for_status()
+                payload = response.json()
+
+            if payload.get("code") != 0:
+                return {}
+
+            data = payload.get("data") or {}
+            owner = data.get("owner") or {}
+            return {
+                "title": data.get("title", ""),
+                "description": data.get("desc", ""),
+                "uploader": owner.get("name", ""),
+                "platform": "BiliBili",
+                "duration": data.get("duration") or 0,
+                "language": "zh",
+            }
+        except Exception:
+            return {}
 
     def _extract_bilibili(self, url: str) -> dict:
         """B 站专用字幕提取（通过 dm/view API 获取 CC 字幕和 AI 字幕）"""
@@ -364,7 +514,10 @@ class SubtitleExtractor:
             reason_prefix = f"平台字幕提取失败（{subtitle_error_message}）"
 
         if not self.enable_audio_fallback:
-            return self._empty_result(f"{reason_prefix}，且当前站点未开启语音转写兜底。")
+            return self._metadata_summary_fallback(
+                info,
+                f"{reason_prefix}，且当前站点未开启语音转写兜底。",
+            )
 
         if not _get_first_env("OPENAI_API_KEY"):
             return self._empty_result(f"{reason_prefix}，且当前站点未配置 OpenAI 语音转写能力。")
@@ -372,19 +525,24 @@ class SubtitleExtractor:
         duration = float(info.get("duration") or 0)
         if duration and duration > self.transcription_max_duration_seconds:
             minutes = max(1, self.transcription_max_duration_seconds // 60)
-            return self._empty_result(
-                f"{reason_prefix}，且视频时长超过 {minutes} 分钟，当前未执行语音转写。"
+            return self._metadata_summary_fallback(
+                info,
+                f"{reason_prefix}，且视频时长超过 {minutes} 分钟，当前未执行语音转写。",
             )
 
         try:
             segments, full_text = self._transcribe_audio(url, duration)
         except Exception as error:
-            return self._empty_result(
-                f"{reason_prefix}，语音转写兜底也失败了：{error}"
+            return self._metadata_summary_fallback(
+                info,
+                f"{reason_prefix}，语音转写兜底也失败了：{error}",
             )
 
         if not full_text.strip():
-            return self._empty_result(f"{reason_prefix}，语音转写也没有返回可用文本。")
+            return self._metadata_summary_fallback(
+                info,
+                f"{reason_prefix}，语音转写也没有返回可用文本。",
+            )
 
         if not segments:
             segments = self._build_transcribed_segments(
@@ -544,11 +702,14 @@ class SubtitleExtractor:
     def _transcribe_audio_file(self, audio_path: str) -> str:
         client = self._get_transcription_client()
         with open(audio_path, "rb") as audio_file:
-            response = client.audio.transcriptions.create(
-                model=self.transcription_model,
-                file=audio_file,
-                response_format="text",
-            )
+            try:
+                response = client.audio.transcriptions.create(
+                    model=self.transcription_model,
+                    file=audio_file,
+                    response_format="text",
+                )
+            except Exception as error:
+                raise _friendly_openai_error(error, "语音转写")
 
         if isinstance(response, str):
             return response.strip()
@@ -752,6 +913,7 @@ class VideoSummarizer:
             kwargs = {"api_key": api_key}
             if base_url:
                 kwargs["base_url"] = base_url
+            kwargs["timeout"] = _get_int_env("OPENAI_TIMEOUT_SECONDS", 120)
             return kwargs
 
         api_key = _get_first_env("DEEPSEEK_API_KEY", "LLM_API_KEY")
@@ -765,6 +927,7 @@ class VideoSummarizer:
                 "LLM_BASE_URL",
                 default="https://api.deepseek.com",
             ),
+            "timeout": _get_int_env("OPENAI_TIMEOUT_SECONDS", 120),
         }
 
     @staticmethod
@@ -784,7 +947,10 @@ class VideoSummarizer:
             options["max_completion_tokens"] = max_tokens
         else:
             options["max_tokens"] = max_tokens
-        return self.client.chat.completions.create(**options)
+        try:
+            return self.client.chat.completions.create(**options)
+        except Exception as error:
+            raise _friendly_openai_error(error, "AI 总结")
 
     def summarize_stream(self, subtitle_text: str, language: str = "zh"):
         """流式生成视频总结，yield 每个 token"""

@@ -429,7 +429,9 @@ function getSubtitleMeta(data) {
       ? '自动字幕'
       : data.subtitle_type === 'transcribed'
         ? 'AI 转写'
-        : '字幕'
+        : data.subtitle_type === 'metadata'
+          ? '公开信息'
+          : '字幕'
 
   if (!data.language || data.language === 'auto') {
     return typeLabel
@@ -731,7 +733,7 @@ async function startSummarize() {
   quotaInfo.value = null
   summaryNotice.value = null
   subtitleData.value = { segments: [], has_subtitle: false, subtitle_type: 'none', detail_message: '', full_text: '' }
-  loadingMessage.value = '正在提取视频字幕...'
+  loadingMessage.value = '正在读取字幕；没有字幕时会自动尝试语音转写...'
 
   try {
     await summarizeVideo(props.videoUrl, 'zh', {
@@ -741,7 +743,9 @@ async function startSummarize() {
           if (subtitleData.value.has_subtitle) {
             loadingMessage.value = subtitleData.value.subtitle_type === 'transcribed'
               ? 'AI 已完成语音转写，正在生成总结...'
-              : 'AI 正在分析视频内容...'
+              : subtitleData.value.subtitle_type === 'metadata'
+                ? '已获取公开视频信息，正在生成有限总结...'
+                : 'AI 正在分析视频内容...'
           }
         } catch (e) { /* ignore parse error */ }
       },
