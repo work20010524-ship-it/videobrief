@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import yt_dlp
+import httpx
 from typing import Optional
 
 
@@ -28,6 +29,10 @@ class VideoDownloader:
         self.has_ffmpeg = self.ffmpeg_path is not None
 
     @staticmethod
+    def _is_bilibili_url(url: str) -> bool:
+        return "bilibili.com" in url or "b23.tv" in url
+
+    @staticmethod
     def _base_ydl_opts(url: str = "") -> dict:
         user_agent = os.getenv(
             "YTDLP_USER_AGENT",
@@ -44,7 +49,7 @@ class VideoDownloader:
             },
         }
 
-        if "bilibili.com" in url or "b23.tv" in url:
+        if VideoDownloader._is_bilibili_url(url):
             opts["http_headers"]["Referer"] = url
 
         proxy = os.getenv("YTDLP_PROXY", "").strip()
@@ -58,7 +63,7 @@ class VideoDownloader:
     @staticmethod
     def _normalize_ydlp_error(url: str, error: Exception) -> Exception:
         message = str(error)
-        is_bilibili = "bilibili.com" in url or "b23.tv" in url
+        is_bilibili = VideoDownloader._is_bilibili_url(url)
         if is_bilibili and "412" in message and "Precondition Failed" in message:
             return ValueError(
                 "B 站拦截了当前服务器请求（HTTP 412）。这通常不是前端问题，而是服务器 IP、"
@@ -70,6 +75,200 @@ class VideoDownloader:
     @staticmethod
     def _sanitize_filename(name: str) -> str:
         return re.sub(r'[\\/*?:"<>|]', "_", name)
+
+    def _bilibili_headers(self, referer: str = "https://www.bilibili.com") -> dict:
+        headers = {
+            "User-Agent": os.getenv(
+                "YTDLP_USER_AGENT",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+            ),
+            "Referer": referer,
+        }
+        cookie = os.getenv("BILIBILI_COOKIE", "").strip()
+        if cookie:
+            headers["Cookie"] = cookie
+        return headers
+
+    def _httpx_proxy(self) -> Optional[str]:
+        return os.getenv("YTDLP_PROXY", "").strip() or None
+
+    def _resolve_bilibili_url(self, url: str) -> str:
+        if "b23.tv" not in url:
+            return url
+        with httpx.Client(
+            headers=self._bilibili_headers(url),
+            follow_redirects=True,
+            timeout=15,
+            proxy=self._httpx_proxy(),
+        ) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            return str(response.url)
+
+    @staticmethod
+    def _parse_bvid(url: str) -> Optional[str]:
+        match = re.search(r"(BV[a-zA-Z0-9]+)", url)
+        return match.group(1) if match else None
+
+    def _parse_bilibili_fallback(self, url: str) -> dict:
+        resolved_url = self._resolve_bilibili_url(url)
+        bvid = self._parse_bvid(resolved_url)
+        if not bvid:
+            raise ValueError("B 站链接未找到 BV 号，无法使用公开 API 兜底解析")
+
+        api_url = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+        with httpx.Client(
+            headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+            timeout=15,
+            proxy=self._httpx_proxy(),
+        ) as client:
+            response = client.get(api_url)
+            response.raise_for_status()
+            payload = response.json()
+
+        if payload.get("code") != 0:
+            raise ValueError(payload.get("message") or "B 站公开 API 兜底解析失败")
+
+        data = payload.get("data") or {}
+        cid = data.get("cid")
+        formats = self._get_bilibili_fallback_formats(bvid, cid)
+        owner = data.get("owner") or {}
+        stat = data.get("stat") or {}
+
+        return {
+            "id": bvid,
+            "title": data.get("title", "未知标题"),
+            "thumbnail": data.get("pic", ""),
+            "duration": data.get("duration"),
+            "duration_string": self._format_duration(data.get("duration")),
+            "uploader": owner.get("name", "未知"),
+            "platform": "BiliBili",
+            "view_count": stat.get("view"),
+            "upload_date": "",
+            "description": (data.get("desc") or "")[:200],
+            "formats": formats,
+            "subtitles": [],
+            "automatic_captions": [],
+            "fallback_notice": "B 站拦截了服务器的 yt-dlp 请求，已使用公开 API 兜底解析。下载清晰度可能受限。",
+        }
+
+    def _get_bilibili_fallback_formats(self, bvid: str, cid: Optional[int]) -> list[dict]:
+        if not cid:
+            return []
+
+        api_url = "https://api.bilibili.com/x/player/playurl"
+        params = {
+            "bvid": bvid,
+            "cid": str(cid),
+            "qn": "64",
+            "fnval": "0",
+            "fourk": "1",
+        }
+        try:
+            with httpx.Client(
+                headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+                timeout=15,
+                proxy=self._httpx_proxy(),
+            ) as client:
+                response = client.get(api_url, params=params)
+                response.raise_for_status()
+                payload = response.json()
+        except Exception:
+            return []
+
+        if payload.get("code") != 0:
+            return []
+
+        data = payload.get("data") or {}
+        durls = data.get("durl") or []
+        if not durls:
+            return []
+
+        accept_quality = data.get("accept_quality") or []
+        accept_description = data.get("accept_description") or []
+        quality_label = dict(zip(accept_quality, accept_description))
+
+        formats = []
+        for item in durls[:1]:
+            quality = data.get("quality") or 0
+            size = item.get("size")
+            formats.append({
+                "format_id": f"bilibili_api:{bvid}:{cid}:{quality}",
+                "ext": "mp4",
+                "resolution": quality_label.get(quality, "B站公开直链"),
+                "height": quality,
+                "filesize": size,
+                "filesize_approx": size,
+                "vcodec": "unknown",
+                "acodec": "unknown",
+                "has_audio": True,
+                "label": f"{quality_label.get(quality, 'B站公开直链')} MP4 ({self._format_filesize(size)})",
+                "url": item.get("url"),
+            })
+        return formats
+
+    def _get_bilibili_api_direct_url(self, bvid: str, cid: str, quality: str) -> tuple[str, Optional[int]]:
+        api_url = "https://api.bilibili.com/x/player/playurl"
+        params = {
+            "bvid": bvid,
+            "cid": cid,
+            "qn": quality,
+            "fnval": "0",
+            "fourk": "1",
+        }
+        with httpx.Client(
+            headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+            timeout=20,
+            proxy=self._httpx_proxy(),
+            follow_redirects=True,
+        ) as client:
+            response = client.get(api_url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+
+        if payload.get("code") != 0:
+            raise ValueError(payload.get("message") or "B 站公开直链获取失败")
+
+        durls = (payload.get("data") or {}).get("durl") or []
+        if not durls:
+            raise ValueError("B 站公开 API 没有返回可下载直链")
+        return durls[0].get("url", ""), durls[0].get("size")
+
+    def _download_bilibili_api(self, url: str, format_id: str) -> dict:
+        try:
+            _, bvid, cid, quality = format_id.split(":", 3)
+        except ValueError:
+            raise ValueError("B 站兜底下载格式无效")
+
+        direct_url, _ = self._get_bilibili_api_direct_url(bvid, cid, quality)
+        if not direct_url:
+            raise ValueError("B 站公开 API 没有返回可下载直链")
+
+        metadata = self._parse_bilibili_fallback(url)
+        title = self._sanitize_filename(metadata.get("title", bvid))
+        filename = f"{title}.mp4"
+        filepath = os.path.join(self.DOWNLOAD_DIR, filename)
+
+        with httpx.Client(
+            headers=self._bilibili_headers(f"https://www.bilibili.com/video/{bvid}"),
+            timeout=60,
+            proxy=self._httpx_proxy(),
+            follow_redirects=True,
+        ) as client:
+            with client.stream("GET", direct_url) as response:
+                response.raise_for_status()
+                with open(filepath, "wb") as output:
+                    for chunk in response.iter_bytes():
+                        if chunk:
+                            output.write(chunk)
+
+        return {
+            "filepath": filepath,
+            "filename": filename,
+            "title": metadata.get("title", bvid),
+            "ext": "mp4",
+        }
 
     @staticmethod
     def _format_filesize(size: Optional[int]) -> str:
@@ -98,6 +297,15 @@ class VideoDownloader:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as e:
+            if self._is_bilibili_url(url) and "412" in str(e):
+                try:
+                    return self._parse_bilibili_fallback(url)
+                except Exception as fallback_error:
+                    raise ValueError(
+                        "B 站拦截了当前服务器请求（HTTP 412），并且公开 API 兜底也失败了："
+                        f"{fallback_error}。这通常是服务器出口 IP 被风控，请优先配置 YTDLP_PROXY；"
+                        "如果仍失败，再按需配置 BILIBILI_COOKIE。"
+                    )
             raise self._normalize_ydlp_error(url, e)
 
         if not info:
@@ -188,6 +396,9 @@ class VideoDownloader:
 
     def download_video(self, url: str, format_id: str) -> dict:
         """下载视频到服务器临时目录，返回文件路径和元数据"""
+        if format_id.startswith("bilibili_api:"):
+            return self._download_bilibili_api(url, format_id)
+
         if not self.has_ffmpeg and "+" in format_id:
             format_id = "best"
 
@@ -236,6 +447,19 @@ class VideoDownloader:
 
     def get_direct_url(self, url: str, format_id: str) -> dict:
         """获取视频直链"""
+        if format_id.startswith("bilibili_api:"):
+            try:
+                _, bvid, cid, quality = format_id.split(":", 3)
+            except ValueError:
+                raise ValueError("B 站兜底直链格式无效")
+            direct_url, size = self._get_bilibili_api_direct_url(bvid, cid, quality)
+            return {
+                "direct_url": direct_url,
+                "ext": "mp4",
+                "filesize": size,
+                "title": bvid,
+            }
+
         ydl_opts = {
             **self._base_ydl_opts(url),
             "format": format_id,

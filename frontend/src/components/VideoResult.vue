@@ -46,6 +46,12 @@
         <p v-if="video.description" class="text-sm text-text-muted line-clamp-2">
           {{ video.description }}
         </p>
+        <div
+          v-if="video.fallback_notice"
+          class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"
+        >
+          {{ video.fallback_notice }}
+        </div>
       </div>
     </div>
 
@@ -59,7 +65,7 @@
         选择清晰度和格式
       </h4>
 
-      <div class="grid grid-cols-1 gap-2.5">
+      <div v-if="video.formats?.length" class="grid grid-cols-1 gap-2.5">
         <button
           v-for="fmt in video.formats"
           :key="fmt.format_id"
@@ -83,6 +89,12 @@
             <div class="text-xs text-text-muted">{{ fmt.ext.toUpperCase() }} {{ fmt.has_audio ? '· 含音频' : '· 仅视频' }}</div>
           </div>
         </button>
+      </div>
+      <div
+        v-else
+        class="rounded-2xl border border-dashed border-border bg-gray-50 px-4 py-5 text-sm leading-6 text-text-secondary"
+      >
+        当前链接已解析到视频信息，但没有拿到可下载格式。你可以先使用 AI 总结；如果这是 B 站视频，通常是服务器出口被风控，需要配置国内代理或 B 站 cookie 后再试。
       </div>
 
       <!-- 下载按钮 -->
