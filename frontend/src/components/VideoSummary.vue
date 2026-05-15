@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white rounded-2xl border border-border shadow-lg overflow-hidden h-full flex flex-col">
+  <div class="glass-card rounded-[2rem] overflow-hidden h-full flex flex-col">
         <!-- 标签页导航 -->
         <div class="flex border-b border-border-light">
           <button

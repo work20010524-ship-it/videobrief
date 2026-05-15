@@ -1,27 +1,27 @@
 <template>
-  <footer class="bg-white border-t border-border-light py-8">
+  <footer class="bg-[#07111f] border-t border-white/10 py-10 signal-grid">
     <div class="max-w-6xl mx-auto px-4 sm:px-6">
       <div class="text-center mb-6">
-        <p class="text-sm text-text-secondary leading-relaxed max-w-3xl mx-auto">
+        <p class="text-sm text-cyan-50/64 leading-relaxed max-w-3xl mx-auto">
           <strong>{{ siteConfig.name }}</strong> — {{ siteConfig.footer.description }}
         </p>
       </div>
       <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
         <a href="/" class="flex items-center gap-2" :title="`${siteConfig.name} 首页`">
-          <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center">
-            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <div class="w-8 h-8 rounded-xl bg-white flex items-center justify-center">
+            <svg class="w-4 h-4 text-[#07111f]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <span class="text-sm font-medium text-text-primary">{{ siteConfig.name }}</span>
+          <span class="display-font text-base font-black text-white">{{ siteConfig.name }}</span>
         </a>
-        <p class="text-xs text-text-muted text-center leading-relaxed">
+        <p class="text-xs text-cyan-50/48 text-center leading-relaxed">
           {{ siteConfig.footer.legal }}
         </p>
-        <p class="text-xs text-text-muted">
+        <p class="text-xs text-cyan-50/48">
           &copy; {{ new Date().getFullYear() }} {{ siteConfig.name }}
         </p>
       </div>

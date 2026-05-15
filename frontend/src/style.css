@@ -2,30 +2,32 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --color-primary: #1777FF;
-  --color-primary-dark: #1260DD;
-  --color-primary-light: #E8F1FF;
-  --color-bg-main: #FFFFFF;
-  --color-bg-section: #F8FAFC;
-  --color-text-primary: #1F1F1F;
-  --color-text-secondary: #6B7280;
-  --color-text-muted: #9CA3AF;
-  --color-border: #E5E7EB;
-  --color-border-light: #F3F4F6;
-  --color-success: #10B981;
+  --color-primary: #0EA5E9;
+  --color-primary-dark: #0369A1;
+  --color-primary-light: #E0F7FF;
+  --color-bg-main: #F7F3EA;
+  --color-bg-section: #EFE8DC;
+  --color-text-primary: #111827;
+  --color-text-secondary: #586174;
+  --color-text-muted: #8B95A7;
+  --color-border: #D9D2C4;
+  --color-border-light: #EDE5D7;
+  --color-success: #12B981;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
-    sans-serif;
+  font-family: "Avenir Next", "Gill Sans", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--color-text-primary);
-  background-color: var(--color-bg-main);
+  background:
+    radial-gradient(circle at 15% 0%, rgba(14, 165, 233, 0.18), transparent 30rem),
+    radial-gradient(circle at 90% 10%, rgba(18, 185, 129, 0.16), transparent 28rem),
+    linear-gradient(180deg, #fbf7ef 0%, var(--color-bg-main) 42%, #f5efe2 100%);
 }
 
 #app {
@@ -44,4 +46,81 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+::selection {
+  background: rgba(18, 185, 129, 0.24);
+  color: #07111f;
+}
+
+.display-font {
+  font-family: "STZhongsong", "Songti SC", "Noto Serif SC", "PingFang SC", serif;
+  letter-spacing: -0.045em;
+}
+
+.signal-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+
+.paper-noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px),
+    radial-gradient(circle at 70% 80%, rgba(17, 24, 39, 0.06) 0 1px, transparent 1px);
+  background-size: 28px 28px, 36px 36px;
+  mix-blend-mode: multiply;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.ink-card {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.22), transparent 18rem),
+    radial-gradient(circle at 100% 0%, rgba(18, 185, 129, 0.20), transparent 16rem),
+    #07111f;
+  color: white;
+}
+
+.lift-hover {
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.lift-hover:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.16);
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(0, -14px, 0) rotate(1.5deg); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.float-slow {
+  animation: float-slow 7s ease-in-out infinite;
+}
+
+.reveal-up {
+  animation: reveal-up 0.6s ease both;
 }

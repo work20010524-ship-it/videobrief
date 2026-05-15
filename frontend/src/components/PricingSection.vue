@@ -1,12 +1,15 @@
 <template>
-  <section id="pricing" class="py-16 sm:py-20 bg-white" aria-labelledby="pricing-heading">
+  <section id="pricing" class="relative overflow-hidden py-16 sm:py-24 bg-[#f9f4ea] paper-noise" aria-labelledby="pricing-heading">
+    <div class="absolute left-8 top-20 hidden h-32 w-32 rounded-full border border-primary/20 md:block"></div>
+    <div class="absolute right-8 bottom-16 hidden h-44 w-44 rounded-full border border-success/20 md:block"></div>
     <div class="max-w-7xl mx-auto px-4 sm:px-6">
       <div class="text-center mb-12">
-        <h2 id="pricing-heading" class="text-2xl sm:text-3xl font-bold text-text-primary mb-3">
+        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">Membership passes</p>
+        <h2 id="pricing-heading" class="display-font text-3xl sm:text-5xl font-black text-text-primary mb-4">
           选择适合你的会员方案
         </h2>
-        <p class="text-text-secondary text-base max-w-xl mx-auto">
-          先用 Free 和 Pro 跑通产品，再逐步把 Go / Plus 补成完整的分层会员体系
+        <p class="text-text-secondary text-base sm:text-lg max-w-xl mx-auto leading-8">
+          把额度、支付和内容处理能力做成清晰分层，让用户知道自己为什么升级。
         </p>
         <p class="mt-3 text-sm text-text-muted">
           {{ siteConfig.pricing.note }}
@@ -18,9 +21,10 @@
           v-for="plan in siteConfig.pricing.plans"
           :key="plan.key"
           :class="cardClass(plan)"
-          class="relative rounded-2xl p-7 flex flex-col overflow-hidden border"
+          class="relative rounded-[2rem] p-7 flex flex-col overflow-hidden border lift-hover"
         >
-          <div v-if="plan.key === 'pro'" class="absolute -top-20 -right-20 w-56 h-56 bg-white/5 rounded-full"></div>
+          <div v-if="plan.key === 'pro'" class="absolute -top-20 -right-20 w-56 h-56 bg-white/8 rounded-full"></div>
+          <div v-else class="absolute -top-20 -right-16 w-48 h-48 bg-primary/8 rounded-full blur-2xl"></div>
           <div v-if="badgeLabel(plan)" :class="badgeClass(plan)" class="absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-medium backdrop-blur-sm">
             {{ badgeLabel(plan) }}
           </div>
@@ -30,7 +34,7 @@
               <p :class="descClass(plan)" class="text-sm">{{ plan.description }}</p>
             </div>
             <div class="mb-6">
-              <span :class="priceClass(plan)" class="text-4xl font-bold">
+              <span :class="priceClass(plan)" class="display-font text-5xl font-black">
                 <template v-if="plan.price === '待定'">{{ plan.price }}</template>
                 <template v-else>{{ siteConfig.pricingDisplay.currencySymbol }}{{ plan.price }}</template>
               </span>
@@ -89,9 +93,9 @@ function handlePlanClick(plan) {
 }
 
 function cardClass(plan) {
-  if (plan.key === 'pro') return 'bg-gradient-to-br from-primary to-blue-600 text-white border-transparent shadow-xl'
+  if (plan.key === 'pro') return 'ink-card text-white border-transparent shadow-[0_32px_90px_rgba(7,17,31,0.28)]'
   if (plan.action === 'planned') return 'bg-slate-50 text-text-primary border-slate-200'
-  return 'bg-white text-text-primary border-border'
+  return 'bg-white/76 text-text-primary border-white/80 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur'
 }
 
 function badgeClass(plan) {
@@ -129,11 +133,11 @@ function buttonClass(plan) {
     return 'bg-white text-slate-400 border border-slate-200 cursor-not-allowed'
   }
   if (plan.key === 'pro') {
-    return 'bg-white text-primary hover:bg-white/90 cursor-pointer'
+    return 'bg-white text-[#07111f] hover:bg-cyan-50 cursor-pointer'
   }
   return props.user
-    ? 'bg-gray-50 text-text-primary border border-border cursor-default'
-    : 'bg-white text-text-primary border border-border hover:bg-gray-50 cursor-pointer'
+    ? 'bg-[#f8f1e5] text-text-primary border border-border cursor-default'
+    : 'bg-[#07111f] text-white border border-[#07111f] hover:bg-[#102033] cursor-pointer'
 }
 
 function buttonLabel(plan) {

@@ -15,9 +15,10 @@
         :showSlogan="!videoData || demoMode"
       />
       <!-- 视频信息 + AI 总结：左右双栏同屏布局 -->
-      <section v-if="videoData" class="py-4 sm:py-6 bg-white">
+      <section v-if="videoData" class="relative overflow-hidden py-5 sm:py-8 bg-[#f9f4ea] paper-noise">
+        <div class="absolute -top-20 right-10 h-72 w-72 rounded-full bg-primary/12 blur-3xl"></div>
         <div class="max-w-7xl mx-auto px-4 sm:px-6">
-          <div class="flex flex-col lg:flex-row gap-6">
+          <div class="relative flex flex-col lg:flex-row gap-6">
             <!-- 左栏：视频信息 -->
             <div class="w-full lg:w-2/5 lg:flex-shrink-0">
               <VideoResult

@@ -1,8 +1,8 @@
 <template>
-  <div class="bg-white rounded-2xl border border-border shadow-lg overflow-hidden h-full">
+  <div class="glass-card rounded-[2rem] overflow-hidden h-full">
     <!-- 视频信息头部 -->
     <div class="flex flex-col gap-5 p-5 sm:p-6">
-      <div class="relative w-full aspect-video rounded-xl overflow-hidden bg-gray-100">
+      <div class="relative w-full aspect-video rounded-[1.5rem] overflow-hidden bg-[#07111f] shadow-[0_18px_50px_rgba(15,23,42,0.14)]">
         <img
           v-if="video.thumbnail"
           :src="thumbnailUrl"
@@ -16,7 +16,7 @@
               d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
         </div>
-        <div v-if="video.duration_string" class="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 text-white text-xs rounded-md">
+        <div v-if="video.duration_string" class="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 text-white text-xs rounded-md backdrop-blur">
           {{ video.duration_string }}
         </div>
       </div>
@@ -32,7 +32,7 @@
             </svg>
             {{ video.uploader }}
           </span>
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-light text-primary rounded-full text-xs font-medium">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-[#dff7ea] text-[#047857] rounded-full text-xs font-bold">
             {{ video.platform }}
           </span>
           <span v-if="video.view_count" class="inline-flex items-center gap-1">
@@ -73,7 +73,7 @@
           :class="[
             'flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all cursor-pointer',
             selectedFormat === fmt.format_id
-              ? 'border-primary bg-primary-light ring-1 ring-primary/20'
+              ? 'border-primary bg-primary-light ring-1 ring-primary/20 shadow-sm'
               : 'border-border-light hover:border-primary/40 hover:bg-gray-50'
           ]"
         >
@@ -102,7 +102,7 @@
         <button
           @click="$emit('download', selectedFormat)"
           :disabled="!selectedFormat || downloading"
-          class="w-full inline-flex items-center justify-center gap-2 h-12 px-10 rounded-full bg-primary hover:bg-primary-dark text-white font-medium text-base transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg cursor-pointer"
+          class="w-full inline-flex items-center justify-center gap-2 h-12 px-10 rounded-full bg-[#07111f] hover:bg-[#102033] text-white font-semibold text-base transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_14px_36px_rgba(7,17,31,0.22)] hover:shadow-lg cursor-pointer"
         >
           <svg v-if="downloading" class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -118,7 +118,7 @@
         <button
           @click="$emit('summarize')"
           :disabled="summarizing"
-          class="w-full inline-flex items-center justify-center gap-2 h-12 px-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white font-medium text-base transition-all shadow-sm hover:shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-primary"
+          class="w-full inline-flex items-center justify-center gap-2 h-12 px-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white font-semibold text-base transition-all shadow-sm hover:shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-primary"
         >
           <svg v-if="summarizing" class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
