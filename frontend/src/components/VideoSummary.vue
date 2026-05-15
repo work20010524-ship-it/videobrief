@@ -772,7 +772,7 @@ async function startSummarize() {
             summaryNotice.value = {
               type: 'login',
               title: '登录后即可使用 AI 总结',
-              message: parsed.message || '请先登录后再试一次。',
+              message: '登录后即可继续生成摘要、思维导图和视频问答。',
               action: 'login',
               actionLabel: '立即登录',
             }
@@ -783,7 +783,7 @@ async function startSummarize() {
             summaryNotice.value = {
               type: 'quota',
               title: '今日免费次数已用完',
-              message: parsed.message || '升级 Pro 后可继续使用 AI 总结、思维导图和更高额度能力。',
+              message: '升级后可以继续使用 AI 总结、思维导图和视频问答。',
               action: 'upgrade',
               actionLabel: '升级 Pro',
             }
@@ -792,13 +792,13 @@ async function startSummarize() {
           summaryNotice.value = {
             type: parsed.code === 'no_subtitle' ? 'empty' : 'error',
             title: parsed.code === 'no_subtitle' ? '暂时无法生成总结' : '总结生成失败',
-            message: parsed.message || '请稍后再试一次。',
+            message: toCustomerSummaryMessage(parsed.message, parsed.code),
           }
         } catch (e) {
           summaryNotice.value = {
             type: 'error',
             title: '总结生成失败',
-            message: '总结失败：' + data,
+            message: toCustomerSummaryMessage(data),
           }
         }
       },
@@ -808,7 +808,7 @@ async function startSummarize() {
     summaryNotice.value = {
       type: 'error',
       title: '总结请求失败',
-      message: err.message || '请稍后重试',
+      message: toCustomerSummaryMessage(err.message),
     }
   }
 }
@@ -846,9 +846,9 @@ async function sendQuestion() {
           chatLoading.value = false
           try {
             const parsed = JSON.parse(data)
-            aiMessage.content = '❌ ' + (parsed.message || '回答失败')
+            aiMessage.content = '暂时无法回答这个问题，请稍后再试。'
           } catch (e) {
-            aiMessage.content = '❌ 回答失败'
+            aiMessage.content = '暂时无法回答这个问题，请稍后再试。'
           }
         },
       }
@@ -856,8 +856,25 @@ async function sendQuestion() {
   } catch (err) {
     aiMessage.loading = false
     chatLoading.value = false
-    aiMessage.content = '❌ 请求失败: ' + err.message
+    aiMessage.content = '暂时无法回答这个问题，请稍后再试。'
   }
+}
+
+function toCustomerSummaryMessage(rawMessage, code = '') {
+  const text = typeof rawMessage === 'string' ? rawMessage : JSON.stringify(rawMessage || '')
+  if (code === 'no_subtitle' || /no_subtitle|字幕|subtitle/i.test(text)) {
+    return '这个视频暂时没有可读取的字幕或语音内容，建议换一个有清晰人声或字幕的视频再试。'
+  }
+  if (/quota|次数|额度|limit/i.test(text)) {
+    return '今日可用次数已经用完，升级会员后可以继续生成总结。'
+  }
+  if (/OpenAI|API|接口|base_url|key|connection|connect|network|timeout|服务器|代理|proxy/i.test(text)) {
+    return 'AI 服务暂时没有连接成功，请稍后再试。'
+  }
+  if (/login|登录/i.test(text)) {
+    return '登录后即可继续生成总结和问答。'
+  }
+  return '这次总结没有生成成功，请稍后再试，或换一个公开视频链接。'
 }
 
 function scrollChatToBottom() {

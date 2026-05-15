@@ -271,11 +271,11 @@ async function handleParse(url) {
       videoData.value = res.data
       summaryKey.value++
     } else {
-      alert('解析失败：' + (res.error || '未知错误'))
+      alert(toCustomerParseMessage(res.error))
     }
   } catch (err) {
     const msg = err.response?.data?.detail?.error || err.response?.data?.detail || err.message
-    alert('解析失败：' + msg)
+    alert(toCustomerParseMessage(msg))
   } finally {
     loading.value = false
   }
@@ -299,10 +299,24 @@ async function handleDownload(formatId) {
     a.click()
     window.URL.revokeObjectURL(url)
   } catch (err) {
-    alert('下载失败：' + (err.message || '请稍后重试'))
+    alert('下载暂时没有完成，请稍后再试，或先使用 AI 总结保存重点内容。')
   } finally {
     downloading.value = false
   }
+}
+
+function toCustomerParseMessage(rawMessage) {
+  const text = typeof rawMessage === 'string' ? rawMessage : JSON.stringify(rawMessage || '')
+  if (/unsupported url|不支持|Unsupported/i.test(text)) {
+    return '这个链接暂时不支持解析。建议复制视频详情页的分享链接，或换一个公开视频链接再试。'
+  }
+  if (/412|bili|bilibili|B 站|cookie|风控|proxy|代理|server|服务器/i.test(text)) {
+    return '该平台暂时限制了当前链接的读取。你可以稍后重试，或先换一个公开视频链接进行总结。'
+  }
+  if (/sign in|bot|login|登录|youtube/i.test(text)) {
+    return '该视频平台需要更多验证，暂时无法直接读取这个链接。你可以换一个公开视频，或稍后再试。'
+  }
+  return '暂时没有成功解析这个视频。请确认链接是公开视频地址，然后再试一次。'
 }
 </script>
 

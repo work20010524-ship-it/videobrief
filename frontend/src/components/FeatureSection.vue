@@ -2,7 +2,7 @@
   <section id="features" class="relative overflow-hidden py-16 sm:py-24 bg-bg-main paper-noise" aria-labelledby="features-heading">
     <div class="relative max-w-7xl mx-auto px-4 sm:px-6">
       <div class="mx-auto mb-12 max-w-3xl text-center">
-        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">Not another downloader</p>
+        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">不只是下载</p>
         <h2 id="features-heading" class="display-font text-3xl sm:text-5xl font-black text-text-primary mb-4">
           为什么选择 <span class="text-primary">{{ siteConfig.name }}</span>
         </h2>

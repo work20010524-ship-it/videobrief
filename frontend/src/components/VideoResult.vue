@@ -94,7 +94,7 @@
         v-else
         class="rounded-2xl border border-dashed border-border bg-gray-50 px-4 py-5 text-sm leading-6 text-text-secondary"
       >
-        当前链接已解析到视频信息，但没有拿到可下载格式。你可以先使用 AI 总结；如果这是 B 站视频，通常是服务器出口被风控，需要配置国内代理或 B 站 cookie 后再试。
+        已识别到视频信息，但该平台暂时没有提供可直接下载的清晰度选项。你可以先使用 AI 总结，或稍后换一个公开视频链接再试。
       </div>
 
       <!-- 下载按钮 -->

@@ -4,7 +4,7 @@
     <div class="absolute -right-20 bottom-0 h-72 w-72 rounded-full bg-success/15 blur-3xl"></div>
     <div class="relative max-w-6xl mx-auto px-4 sm:px-6">
       <div class="text-center mb-12">
-        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-success">Three-step flow</p>
+        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-success">三步完成</p>
         <h2 id="howto-heading" class="display-font text-3xl sm:text-5xl font-black text-white mb-4">
           如何使用 <span class="text-cyan-200">{{ siteConfig.name }}</span>
         </h2>
@@ -30,7 +30,7 @@
 
       <div class="mt-10 text-center">
         <p class="text-sm text-cyan-50/52">
-          基础解析可直接体验，AI 总结和会员能力可按你的产品策略继续配置。
+          从看视频到做笔记，把重复整理的时间省下来。
         </p>
       </div>
     </div>

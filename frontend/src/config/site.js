@@ -32,7 +32,7 @@ export const siteConfig = {
     titlePrefix: '多平台视频解析',
     titleHighlight: '与 AI 总结',
     description:
-      '输入链接即可解析标题、封面、格式与字幕，支持下载、内容总结、思维导图和问答，适合学习整理、内容研究与素材归档。',
+      '复制视频链接，即可获取封面、标题、可选清晰度和字幕内容，并继续生成摘要、思维导图和问答，帮你更快看懂一条视频。',
     placeholder: 'https://www.youtube.com/watch?v=... 粘贴视频链接',
     examples: [
       { label: 'YouTube', url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw' },
@@ -44,13 +44,13 @@ export const siteConfig = {
     {
       icon: '🌐',
       title: '多平台解析',
-      desc: `基于 yt-dlp 与定制解析器，覆盖 ${supportPlatformCount} 个以上平台的视频、音频与社媒内容。`,
+      desc: `覆盖 ${supportPlatformCount} 个以上视频与社交平台，常见链接粘贴即可开始整理，不需要安装额外软件。`,
       bgClass: 'bg-cyan-50',
     },
     {
       icon: '⚡',
-      title: '下载与代理双模式',
-      desc: '优先走轻量解析，必要时回退服务端代理下载，方便后续接入鉴权、限流和带宽策略。',
+      title: '稳定保存重点内容',
+      desc: '优先提供清晰、可理解的下载选项；遇到平台限制时，也会尽量保留可阅读的标题、封面和摘要信息。',
       bgClass: 'bg-amber-50',
     },
     {
@@ -67,8 +67,8 @@ export const siteConfig = {
     },
     {
       icon: '🚀',
-      title: '可品牌化独立站骨架',
-      desc: '前后端分离、会员与支付已预留，适合继续改成你的独立产品、作品集项目或轻 SaaS。',
+      title: '专属内容工作台',
+      desc: '把分散在不同平台的视频统一整理成可保存、可复习、可追问的知识卡片，适合学习、创作和资料归档。',
       bgClass: 'bg-violet-50',
     },
   ],
@@ -91,20 +91,20 @@ export const siteConfig = {
   ],
   comparison: {
     title: `${siteName} 与常见视频工具对比`,
-    description: '更适合做独立部署、产品化包装和二次开发，而不仅仅是一次性的下载脚本。',
+    description: '不只是下载视频，更关注看懂内容、沉淀重点和后续复习。',
     rows: [
       { feature: '支持平台数量', saveany: supportPlatformCount, online: '10-50', desktop: '100-500' },
       { feature: 'AI 视频总结', saveany: true, online: false, desktop: false },
       { feature: '字幕导出', saveany: 'SRT/VTT/TXT', online: '部分支持', desktop: '部分支持' },
       { feature: '思维导图', saveany: true, online: false, desktop: false },
       { feature: '抖音无水印适配', saveany: true, online: '不稳定', desktop: '通常需登录' },
-      { feature: '可二次开发', saveany: true, online: false, desktop: '有限' },
-      { feature: '适合独立部署', saveany: true, online: false, desktop: '需要客户端分发' },
+      { feature: '浏览器直接使用', saveany: true, online: true, desktop: false },
+      { feature: '适合长期整理资料', saveany: true, online: '有限', desktop: '有限' },
       { feature: '手机浏览器可用', saveany: true, online: '部分支持', desktop: false },
     ],
   },
   pricing: {
-    note: 'Go / Plus / Pro 已接入后端额度；Go 每日 3 次，Plus 每日 10 次，Pro 不限次数。',
+    note: '不同方案对应不同的每日 AI 使用次数：Go 每日 3 次，Plus 每日 10 次，Pro 不限次数。',
     plans: [
       {
         key: 'free',
@@ -132,8 +132,8 @@ export const siteConfig = {
         features: [
           `每日 ${goSummaryLimit} 次 AI 总结`,
           '更快的摘要生成优先级',
-          '轻量导出与历史记录',
-          '适合作为入门付费层',
+          '适合临时查资料和日常收藏',
+          '比免费版更适合连续使用',
         ],
       },
       {
@@ -148,7 +148,7 @@ export const siteConfig = {
           `每日 ${plusSummaryLimit} 次 AI 总结`,
           '思维导图导出增强',
           '更丰富的历史与收藏能力',
-          '适合做中层主力套餐',
+          '适合课程学习和内容选题整理',
         ],
       },
       {
@@ -162,8 +162,8 @@ export const siteConfig = {
         features: [
           '无限次 AI 总结与问答',
           '思维导图生成与导出',
-          '适合做会员化产品包装',
-          '可继续扩展批量处理与历史记录',
+          '适合高频研究和资料归档',
+          '持续处理更多长视频内容',
         ],
       },
     ],
@@ -183,7 +183,7 @@ export const siteConfig = {
     { icon: '📰', name: 'Reddit' },
   ],
   footer: {
-    description: `${siteName} 提供视频解析、字幕提取、AI 摘要和思维导图能力，适合做个人效率工具、团队知识整理工具或内容处理型 SaaS。`,
+    description: `${siteName} 提供视频解析、字幕提取、AI 摘要和思维导图能力，帮助你把视频内容整理成更容易复习和分享的知识资料。`,
     legal: '请仅处理拥有合法授权的内容，并遵守所在地法律法规与平台服务条款。',
   },
   meta: {
@@ -193,7 +193,7 @@ export const siteConfig = {
       '多平台视频解析、字幕提取与 AI 总结工具，支持下载、思维导图和视频问答。',
     keywords:
       env.VITE_SITE_KEYWORDS ||
-      '视频下载,视频解析,字幕提取,AI视频总结,思维导图,视频问答,独立站项目,VideoBrief',
+      '视频下载,视频解析,字幕提取,AI视频总结,思维导图,视频问答,学习整理,VideoBrief',
     ogImage: env.VITE_OG_IMAGE || `${siteDomain}/og-image.png`,
   },
   pricingDisplay: {

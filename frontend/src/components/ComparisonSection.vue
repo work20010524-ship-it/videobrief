@@ -2,7 +2,7 @@
   <section id="comparison" class="relative py-16 sm:py-24 bg-bg-main paper-noise" aria-labelledby="comparison-heading">
     <div class="relative max-w-6xl mx-auto px-4 sm:px-6">
       <div class="text-center mb-12">
-        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">Positioning</p>
+        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">为什么不一样</p>
         <h2 id="comparison-heading" class="display-font text-3xl sm:text-5xl font-black text-text-primary mb-4">
           {{ siteConfig.comparison.title }}
         </h2>

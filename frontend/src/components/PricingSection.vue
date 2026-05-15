@@ -4,12 +4,12 @@
     <div class="absolute right-8 bottom-16 hidden h-44 w-44 rounded-full border border-success/20 md:block"></div>
     <div class="max-w-7xl mx-auto px-4 sm:px-6">
       <div class="text-center mb-12">
-        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">Membership passes</p>
+        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">会员权益</p>
         <h2 id="pricing-heading" class="display-font text-3xl sm:text-5xl font-black text-text-primary mb-4">
           选择适合你的会员方案
         </h2>
         <p class="text-text-secondary text-base sm:text-lg max-w-xl mx-auto leading-8">
-          把额度、支付和内容处理能力做成清晰分层，让用户知道自己为什么升级。
+          按你的使用频率选择合适额度：偶尔整理、日常学习或高频内容研究，都有对应方案。
         </p>
         <p class="mt-3 text-sm text-text-muted">
           {{ siteConfig.pricing.note }}

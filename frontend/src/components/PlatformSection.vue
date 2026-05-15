@@ -2,12 +2,12 @@
   <section id="platforms" class="py-16 sm:py-24 bg-bg-main" aria-labelledby="platforms-heading">
     <div class="max-w-6xl mx-auto px-4 sm:px-6">
       <div class="text-center mb-12">
-        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">Platform canvas</p>
+        <p class="mb-3 text-xs font-black uppercase tracking-[0.32em] text-primary">覆盖更多内容来源</p>
         <h2 id="platforms-heading" class="display-font text-3xl sm:text-5xl font-black text-text-primary mb-4">
           支持全球 <span class="text-primary">{{ siteConfig.supportPlatformCount }}</span> 视频平台
         </h2>
         <p class="text-text-secondary text-base sm:text-lg max-w-xl mx-auto leading-8">
-          覆盖主流视频、音频、社交媒体平台，便于继续拓展成下载、整理和知识处理型工具
+          覆盖主流视频、音频和社交媒体内容，适合学习复盘、选题研究和素材归档
         </p>
       </div>
 
@@ -23,7 +23,7 @@
       </div>
 
       <p class="text-center mt-8 text-sm text-text-muted">
-        ...以及更多可由 yt-dlp 与定制解析逻辑继续扩展的平台和内容源
+        ...以及更多持续适配中的公开内容平台
       </p>
     </div>
   </section>

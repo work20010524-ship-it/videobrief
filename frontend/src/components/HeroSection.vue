@@ -92,8 +92,8 @@
             <div class="rounded-[1.7rem] border border-white/10 bg-[#07111f]/80 p-5">
               <div class="mb-5 flex items-center justify-between">
                 <div>
-                  <p class="text-xs uppercase tracking-[0.35em] text-success/80">Video Signal</p>
-                  <p class="display-font mt-1 text-2xl font-black text-white">Research Cockpit</p>
+                  <p class="text-xs uppercase tracking-[0.35em] text-success/80">内容分析中</p>
+                  <p class="display-font mt-1 text-2xl font-black text-white">视频知识工作台</p>
                 </div>
                 <div class="h-11 w-11 rounded-2xl bg-success/15 text-success grid place-items-center">
                   <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -116,8 +116,8 @@
                     <p class="mt-2 text-3xl font-black">128</p>
                   </div>
                   <div class="rounded-2xl bg-success/15 p-4 text-white">
-                    <p class="text-xs text-cyan-50/65">AI 摘要</p>
-                    <p class="mt-2 text-3xl font-black">4 层</p>
+                    <p class="text-xs text-cyan-50/65">知识卡片</p>
+                    <p class="mt-2 text-3xl font-black">4 类</p>
                   </div>
                 </div>
                 <div class="rounded-2xl border border-white/10 bg-white/6 p-4">
